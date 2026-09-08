@@ -7,6 +7,11 @@ Branch: `arena/01a07fb0-usb-ucpd` · base commit `210b37a`.
 Symptom reported: on Windows 11 the device enumerates as *unknown device* —
 "device descriptor request failed" / Code 10.
 
+> **Round 2 continues in [`ROUND2_REPORT.md`](ROUND2_REPORT.md)** (2026-09-08):
+> Bug A (COM-port instability), Bug C (CLI help), Bug D sweep with a real
+> static analyser, and the corrected `UCPD > CDC > USART2 > rest` priority
+> ordering. Round 1 below is unchanged.
+
 ---
 
 ## 1. Executive summary
