@@ -470,12 +470,15 @@ protocol analyser or USBView, (c) item #1 in §5 if `_FRS` is ever enabled.
 | **Repository** | `https://github.com/blackdemon-1949/USB_UCPD.git` |
 | **Branch** | `arena/01a07fb0-usb-ucpd` (from `main` @ `210b37a`) |
 
+Pushed and verified on the remote — `git ls-remote origin refs/heads/arena/01a07fb0-usb-ucpd`
+reports tip `ea208a577bab8a458fc0727c3157c27e152bfd88`.
+
 | Commit | Subject | Files |
 | --- | --- | --- |
 | `0194a4f` | Add USB_UCPD_V2(DTS) firmware tree extracted from the bundled archive | 339 |
 | `3e2640b` | Fix NVIC priority ordering: UCPD > CDC > USART1 > everything else | 8 |
 | `70135aa` | Do not brick the board when HAL_PCD_Init fails | 1 |
-| *(with this report)* | `tools/verify_irq_and_vectors.py`, `FIX_REPORT.md` | 2 |
+| `ea208a5` | Add FIX_REPORT.md and an ELF/vector-table verification tool | 2 |
 
 The commits are **logically separated as required** — the extracted sources, the
 priority fix, and the USB-init robustness fix are three distinct commits, not
