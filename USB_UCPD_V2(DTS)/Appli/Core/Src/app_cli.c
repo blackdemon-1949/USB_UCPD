@@ -123,7 +123,7 @@ void APP_CLI_PrintHelp(void)
     "  sweep stop             stop a running sweep\r\n"
     "\r\n"
     "  -- output monitor (INA226 on I2C2) --\r\n"
-    "  ina                    one-shot output V / I / P reading\r\n"
+    "  ina | ina226           one-shot output V / I / P reading\r\n"
     "  ina auto on|off        periodic reading every second (default on)\r\n"
     "  ina period <ms>        change the periodic reading interval\r\n"
     "  ina addr <hex>         use a different INA226 address (default 40)\r\n"
@@ -164,7 +164,7 @@ void APP_CLI_PrintHelp(void)
     "  dts period <ms>        change the periodic reading interval\r\n"
     "  dts unit c|f           report in degrees C or degrees F\r\n"
     "  led on|off|hb          LED override\r\n"
-    "  help                   this list\r\n"
+    "  help | ?               this list\r\n"
     "\r\n"
     "  -- Advanced PD Intelligence Engine (APIE) --\r\n"
     "  ap | apie              intelligence status (state, safe, exp level)\r\n"
@@ -183,7 +183,7 @@ void APP_CLI_PrintHelp(void)
     "  ap replay              host-side replay pointer (no live transmit)\r\n"
     "  ap safety              safety limits + hardware capability flags\r\n"
     "  selftest [scope]       one-command non-destructive self-test\r\n"
-    "  selftest quick|full|pd|decoder|ml|database|flash   scoped self-test\r\n"
+    "  selftest [all|quick|full|pd|decoder|ml|database|flash]  scoped\r\n"
     "  packets [raw|decoded|unknown|tx|rx] [all]  packet ring views\r\n"
     "  transactions [active|history]  transaction views\r\n"
     "  safe | safe-mode on|off  disable/enable intelligence (PD sink stays up)\r\n"
@@ -193,8 +193,25 @@ void APP_CLI_PrintHelp(void)
     "  db compact             compact/re-index the store\r\n"
     "  db test                scratch store/readback self-test\r\n"
     "  db wear|writes|erases|checkpoint   flash-endurance accounting\r\n"
+    "  raw [clear|dump [all]|stats|export]  raw packet ring, no ap prefix\r\n"
+
+    "\r\n"
+
+    "  Every \"ap <sub>\" above also works bare, without the ap prefix:\r\n"
+
+    "    apie stats knowledge replay raw txn transactions source profile\r\n"
+
+    "    profiles fingerprint feature features unknown patterns hypotheses\r\n"
+
+    "    ml predict scheduler experiment safety db diag selftest safe\r\n"
+
+    "  (bare \"status\" is the PD status above, not \"ap status\")\r\n"
+
+    "\r\n"
+
     "  safety [status|limits] safety limits + hardware capability flags\r\n"
-    "  diag pd|ucpd|usb|queue|timing|cpu|memory|faults|trace|ml|scheduler|packets|db|safety|flash\r\n"
+    "  diag pd|rx|tx|txn|ucpd|usb|queue|timing|cpu|memory|faults|decoder|\r\n"
+    "       profile|unknown|knowledge|trace|ml|scheduler|packets|db|safety|flash\r\n"
     "\r\n"
     "wire a PD source to PM0 (CC1) or PM1 (CC2) plus GND. The USB Type-C port is this\r\n"
     "console; the USB-PD trace for STM32CubeMonitor-UCPD is on USART1 PA9/PA10 @921600.\r\n"
