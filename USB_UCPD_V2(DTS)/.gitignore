@@ -1,0 +1,26 @@
+# STM32CubeIDE / GCC build output — never commit
+Debug/
+Release/
+RelWithDebInfo/
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.su
+
+# The APIE knowledge package deliberately ships a compact binary knowledge
+# blob (research/pd_knowledge.bin) — keep it tracked despite *.bin.
+!research/pd_knowledge.bin
+
+# Host tooling virtualenv (zig toolchain) and Python bytecode
+.venv/
+tools/__pycache__/
+__pycache__/
+*.pyc
+
+# CubeIDE workspace metadata regenerated on import
+.metadata/
+*.launch

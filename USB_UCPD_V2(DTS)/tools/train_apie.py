@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""
+train_apie.py - host-side training pipeline for the firmware ML model.
+
+The firmware runs an ONLINE Naive Bayes classifier (see
+Appli/Core/Src/apie_ml.c) plus a logistic useful-probability head.  This tool
+lets a host dataset label the same features, train the classifier, validate it
+on a holdout, and package it as a C header (`apie_model_seed.h`) plus a JSON
+metadata record that the firmware can import.
+
+Dataset format (CSV, header line): query,attempt,has_pps,hard_known,success
+    query       : 0..8 (APIE_QueryId_t)
+    attempt     : 0 first, 1 retry, 2 many
+    has_pps     : 0/1
+    hard_known  : 0/1
+    success     : 0/1  (did the source answer usefully?)
+
+Usage:
+    python3 tools/train_apie.py [dataset.csv] [--holdout 0.2] [--out out_dir]
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import random
+import sys
+import time
+
+FEATURE_NAMES = [
+    "latency_ms", "txn_result", "pdo_count", "voltage_mv", "current_ma",
+    "power_mw", "soc_temp_c", "packet_rate", "has_pps", "msgid_delta",
+    "nobjects", "adv_interval_ms",
+]
+QUERY_NAMES = [
+    "getstatus", "getpps", "identify", "svids", "modes",
+    "srcext", "manuinfo", "battery", "country",
+]
+
+
+def laplace(cls, feat, bin_, counts, k=1.0):
+    return (counts.get((cls, feat, bin_), 0) + k) / (k * 8.0)
+
+
+def train(dataset):
+    """dataset: list of (query, attempt, has_pps, hard_known, success)."""
+    nclass = [0, 0]
+    ncount = [[[0] * 8 for _ in range(4)] for _ in range(2)]  # [cls][feat][bin]
+    for q, a, hpp, hk, s in dataset:
+        cls = 1 if s else 0
+        nclass[cls] += 1
+        # map feature -> bin
+        feats = [
+            min(q, 7),
+            min(a, 7),
+            min(hpp, 7),
+            min(hk, 7),
+        ]
+        for f, b in enumerate(feats):
+            ncount[cls][f][min(b, 7)] += 1
+
+    # Naive Bayes prediction of "useful" for a query
+    def predict_useful(q, a, hpp, hk):
+        pc1 = (nclass[1] + 1) / (nclass[0] + nclass[1] + 2)
+        pc0 = 1 - pc1
+        feats = [min(q, 7), min(a, 7), min(hpp, 7), min(hk, 7)]
+        p1 = p0 = 1.0
+        for f, b in enumerate(feats):
+            p1 *= laplace(1, f, b, {(c, ff, bb): ncount[c][ff][bb]
+                                    for c in (0, 1) for ff in range(4) for bb in range(8)})
+            p0 *= laplace(0, f, b, {(c, ff, bb): ncount[c][ff][bb]
+                                    for c in (0, 1) for ff in range(4) for bb in range(8)})
+        d = pc1 * p1 + pc0 * p0
+        return (pc1 * p1 / d) if d else 0.5
+
+    # Logistic head: a simple scalar useful-rate + per-query offset.
+    useful_rate = nclass[1] / (nclass[0] + nclass[1]) if (nclass[0] + nclass[1]) else 0.5
+    return nclass, ncount, predict_useful, useful_rate
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("dataset", nargs="?", default="tools/sample_dataset.csv")
+    ap.add_argument("--holdout", type=float, default=0.2)
+    ap.add_argument("--out", default="tools")
+    args = ap.parse_args()
+
+    rows = []
+    if os.path.exists(args.dataset):
+        with open(args.dataset) as f:
+            rd = csv.DictReader(f)
+            for r in rd:
+                rows.append((int(r["query"]), int(r["attempt"]), int(r["has_pps"]),
+                             int(r["hard_known"]), int(r["success"])))
+    else:
+        print(f"no dataset at {args.dataset}; using built-in documented-behavior seed")
+        rows = build_seed_rows()
+
+    random.shuffle(rows)
+    cut = int(len(rows) * (1 - args.holdout))
+    train_rows, val_rows = rows[:cut], rows[cut:]
+
+    nclass, ncount, predict_useful, useful_rate = train(train_rows)
+
+    # Validate on holdout
+    correct = 0
+    for q, a, hpp, hk, s in val_rows:
+        pred = 1 if predict_useful(q, a, hpp, hk) >= 0.5 else 0
+        correct += (pred == s)
+    acc = correct / len(val_rows) if val_rows else 0.0
+
+    model_id = 1
+    feature_version = len(FEATURE_NAMES)
+    crc = 0
+    meta = {
+        "model_id": model_id,
+        "version": 1,
+        "feature_version": feature_version,
+        "kind": 1,  # NAIVE_BAYES
+        "accuracy": round(acc, 4),
+        "trained": time.strftime("%Y-%m-%d %H:%M"),
+        "n_samples": len(train_rows),
+        "n_valid": len(val_rows),
+        "useful_rate": round(useful_rate, 4),
+        "features": FEATURE_NAMES,
+        "queries": QUERY_NAMES,
+    }
+    # crc (FNV-1a) over the stable part of the model
+    h = 2166136261
+    for c in (0, 1):
+        h ^= nclass[c] & 0xFF; h = (h * 16777619) & 0xFFFFFFFF
+    for cls in (0, 1):
+        for f in range(4):
+            for b in range(8):
+                h ^= ncount[cls][f][b] & 0xFF; h = (h * 16777619) & 0xFFFFFFFF
+    crc = h
+    meta["crc32"] = "0x%08X" % crc
+
+    os.makedirs(args.out, exist_ok=True)
+    hdr_path = os.path.join(args.out, "apie_model_seed.h")
+    with open(hdr_path, "w") as f:
+        f.write("/* Generated by tools/train_apie.py - do not edit by hand. */\n")
+        f.write("#ifndef APIE_MODEL_SEED_H\n#define APIE_MODEL_SEED_H\n\n")
+        f.write(f"#define APIE_MODEL_SEED_ACCURACY {acc:.4f}f\n")
+        f.write(f"#define APIE_MODEL_SEED_NPROFILES 0\n\n")
+        f.write("static const uint32_t api_seed_nclass[2] = { %u, %u };\n" % (nclass[0], nclass[1]))
+        f.write("static const uint32_t api_seed_ncount[2][4][8] =\n{\n")
+        for cls in (0, 1):
+            f.write("  { /* class %d */\n" % cls)
+            for feat in range(4):
+                f.write("    { " + ", ".join(str(ncount[cls][feat][b]) for b in range(8)) + " },\n")
+            f.write("  },\n")
+        f.write("};\n")
+        f.write(f"static const float api_seed_useful_rate = {useful_rate:.4f}f;\n")
+        f.write(f"static const uint32_t api_seed_crc = 0x{crc:08X}u;\n\n")
+        f.write("#endif /* APIE_MODEL_SEED_H */\n")
+
+    json_path = os.path.join(args.out, "apie_model_seed.json")
+    with open(json_path, "w") as f:
+        json.dump(meta, f, indent=2)
+
+    print(f"trained model -> {hdr_path}")
+    print(f"metadata      -> {json_path}")
+    print(f"classes: useful={nclass[1]} not_useful={nclass[0]}  useful_rate={useful_rate:.3f}")
+    print(f"holdout accuracy: {acc:.3f} ({len(val_rows)} samples)")
+
+
+def build_seed_rows():
+    """Principled seeds derived from documented PD-source behavior (not random).
+
+    - A source that offers PPS answers Get_PPS / Get_Status reliably.
+    - Identity is often NAKed from a sink (per observed PB722 behavior).
+    - Battery capability is often Not_Supported on adapters/power-banks.
+    - The first attempt of any informational query tends to succeed.
+    """
+    rows = []
+    # Get_Status / Get_PPS: generally supported.
+    for i in range(12):
+        rows.append((0, 0, 1, 1, 1))
+        rows.append((1, 0, 1, 1, 1))
+    # Identity: frequently NAKed on first try.
+    for i in range(10):
+        rows.append((2, 0, 1, 1, 0))
+    # SVIDs: often no list from a plain charge source.
+    for i in range(10):
+        rows.append((3, 0, 1, 1, 0))
+    # SRC_EXT / MANU_INFO: often ACKed.
+    for i in range(9):
+        rows.append((5, 0, 1, 1, 1))
+        rows.append((6, 0, 1, 1, 1))
+    # Battery: commonly Not_Supported.
+    for i in range(10):
+        rows.append((7, 0, 1, 1, 0))
+    # Country codes: uncommon.
+    for i in range(8):
+        rows.append((8, 0, 1, 1, 0))
+    return rows
+
+
+if __name__ == "__main__":
+    main()

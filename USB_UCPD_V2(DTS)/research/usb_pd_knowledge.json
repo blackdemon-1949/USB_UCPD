@@ -1,0 +1,830 @@
+{
+  "schema_version": 1,
+  "description": "APIE embedded USB-PD knowledge package for STM32H7R3Z8J6 UCPD sink.",
+  "generator": "tools/build_knowledge.py",
+  "generated": "2026-09-01T02:48:00.893104+00:00",
+  "message_classes": [
+    {
+      "id": 0,
+      "name": "UNKNOWN"
+    },
+    {
+      "id": 1,
+      "name": "CONTROL"
+    },
+    {
+      "id": 2,
+      "name": "DATA"
+    },
+    {
+      "id": 3,
+      "name": "EXTENDED"
+    },
+    {
+      "id": 4,
+      "name": "VDM_SVDM"
+    },
+    {
+      "id": 5,
+      "name": "VDM_UVDM"
+    },
+    {
+      "id": 6,
+      "name": "EPR"
+    }
+  ],
+  "control_messages": [
+    {
+      "type": 1,
+      "name": "GoodCRC"
+    },
+    {
+      "type": 2,
+      "name": "GotoMin"
+    },
+    {
+      "type": 3,
+      "name": "Accept"
+    },
+    {
+      "type": 4,
+      "name": "Reject"
+    },
+    {
+      "type": 5,
+      "name": "Ping"
+    },
+    {
+      "type": 6,
+      "name": "PS_RDY"
+    },
+    {
+      "type": 7,
+      "name": "Get_Source_Cap"
+    },
+    {
+      "type": 8,
+      "name": "Get_Sink_Cap"
+    },
+    {
+      "type": 9,
+      "name": "DR_Swap"
+    },
+    {
+      "type": 10,
+      "name": "PR_Swap"
+    },
+    {
+      "type": 11,
+      "name": "VCONN_Swap"
+    },
+    {
+      "type": 12,
+      "name": "Wait"
+    },
+    {
+      "type": 13,
+      "name": "Soft_Reset"
+    },
+    {
+      "type": 14,
+      "name": "Data_Reset"
+    },
+    {
+      "type": 15,
+      "name": "Data_Reset_Complete"
+    },
+    {
+      "type": 16,
+      "name": "Not_Supported"
+    },
+    {
+      "type": 17,
+      "name": "Get_Source_Cap_Ext"
+    },
+    {
+      "type": 18,
+      "name": "Get_Status"
+    },
+    {
+      "type": 19,
+      "name": "FR_Swap"
+    },
+    {
+      "type": 20,
+      "name": "Get_PPS_Status"
+    },
+    {
+      "type": 21,
+      "name": "Get_Country_Codes"
+    },
+    {
+      "type": 22,
+      "name": "Get_Sink_Cap_Ext"
+    },
+    {
+      "type": 23,
+      "name": "Get_Source_Info"
+    },
+    {
+      "type": 24,
+      "name": "Get_Revision"
+    }
+  ],
+  "data_messages": [
+    {
+      "type": 1,
+      "name": "Source_Capabilities"
+    },
+    {
+      "type": 2,
+      "name": "Request"
+    },
+    {
+      "type": 3,
+      "name": "BIST"
+    },
+    {
+      "type": 4,
+      "name": "Sink_Capabilities"
+    },
+    {
+      "type": 5,
+      "name": "Battery_Status"
+    },
+    {
+      "type": 6,
+      "name": "Alert"
+    },
+    {
+      "type": 7,
+      "name": "Get_Country_Info"
+    },
+    {
+      "type": 8,
+      "name": "Enter_USB"
+    },
+    {
+      "type": 9,
+      "name": "EPR_Request"
+    },
+    {
+      "type": 10,
+      "name": "EPR_Mode"
+    },
+    {
+      "type": 11,
+      "name": "Source_Info"
+    },
+    {
+      "type": 12,
+      "name": "Revision"
+    },
+    {
+      "type": 15,
+      "name": "Vendor_Defined"
+    }
+  ],
+  "extended_messages": [
+    {
+      "type": 1,
+      "name": "Ext_Source_Capabilities"
+    },
+    {
+      "type": 2,
+      "name": "Ext_Status"
+    },
+    {
+      "type": 3,
+      "name": "Ext_Get_Battery_Cap"
+    },
+    {
+      "type": 4,
+      "name": "Ext_Get_Battery_Status"
+    },
+    {
+      "type": 5,
+      "name": "Ext_Battery_Capabilities"
+    },
+    {
+      "type": 6,
+      "name": "Ext_Get_Manufacturer_Info"
+    },
+    {
+      "type": 7,
+      "name": "Ext_Manufacturer_Info"
+    },
+    {
+      "type": 8,
+      "name": "Ext_Security_Request"
+    },
+    {
+      "type": 9,
+      "name": "Ext_Security_Response"
+    },
+    {
+      "type": 10,
+      "name": "Ext_FW_Update_Request"
+    },
+    {
+      "type": 11,
+      "name": "Ext_FW_Update_Response"
+    },
+    {
+      "type": 12,
+      "name": "Ext_PPS_Status"
+    },
+    {
+      "type": 13,
+      "name": "Ext_Country_Info"
+    },
+    {
+      "type": 14,
+      "name": "Ext_Country_Codes"
+    },
+    {
+      "type": 15,
+      "name": "Ext_Sink_Capabilities"
+    },
+    {
+      "type": 16,
+      "name": "Ext_Control"
+    },
+    {
+      "type": 17,
+      "name": "Ext_EPR_Source_Capa"
+    },
+    {
+      "type": 18,
+      "name": "Ext_EPR_Sink_Capa"
+    },
+    {
+      "type": 30,
+      "name": "Ext_VDM"
+    }
+  ],
+  "svdm_commands": [
+    {
+      "cmd": 1,
+      "name": "Discover_Identity"
+    },
+    {
+      "cmd": 2,
+      "name": "Discover_SVIDs"
+    },
+    {
+      "cmd": 3,
+      "name": "Discover_Modes"
+    },
+    {
+      "cmd": 4,
+      "name": "Enter_Mode"
+    },
+    {
+      "cmd": 5,
+      "name": "Exit_Mode"
+    },
+    {
+      "cmd": 6,
+      "name": "Attention"
+    },
+    {
+      "cmd": 16,
+      "name": "Specific"
+    }
+  ],
+  "sop": [
+    {
+      "code": 0,
+      "name": "SOP"
+    },
+    {
+      "code": 1,
+      "name": "SOP'"
+    },
+    {
+      "code": 2,
+      "name": "SOP''"
+    },
+    {
+      "code": 3,
+      "name": "SOP' dbg"
+    },
+    {
+      "code": 4,
+      "name": "SOP'' dbg"
+    },
+    {
+      "code": 5,
+      "name": "HARD_RESET"
+    },
+    {
+      "code": 6,
+      "name": "CABLE_RESET"
+    },
+    {
+      "code": 7,
+      "name": "BIST_MODE2"
+    }
+  ],
+  "pdo_metadata": {
+    "type_bits": [
+      30,
+      31
+    ],
+    "fixed": {
+      "voltage_mv": {
+        "bits": [
+          10,
+          19
+        ],
+        "step": 50,
+        "unit": "mV"
+      },
+      "max_current_ma": {
+        "bits": [
+          0,
+          9
+        ],
+        "step": 10,
+        "unit": "mA"
+      }
+    },
+    "battery": {
+      "min_mv": {
+        "bits": [
+          10,
+          19
+        ],
+        "step": 50
+      },
+      "max_mv": {
+        "bits": [
+          20,
+          29
+        ],
+        "step": 50
+      },
+      "max_power_mw": {
+        "bits": [
+          0,
+          9
+        ],
+        "step": 250,
+        "unit": "mW"
+      }
+    },
+    "variable": {
+      "min_mv": {
+        "bits": [
+          10,
+          19
+        ],
+        "step": 50
+      },
+      "max_mv": {
+        "bits": [
+          20,
+          29
+        ],
+        "step": 50
+      },
+      "max_current_ma": {
+        "bits": [
+          0,
+          9
+        ],
+        "step": 10,
+        "unit": "mA"
+      }
+    },
+    "apdo": {
+      "subtype_bits": [
+        28,
+        29
+      ],
+      "pps": {
+        "min_mv": {
+          "bits": [
+            8,
+            15
+          ],
+          "step": 100
+        },
+        "max_mv": {
+          "bits": [
+            17,
+            24
+          ],
+          "step": 100
+        },
+        "max_current_ma": {
+          "bits": [
+            0,
+            6
+          ],
+          "step": 50,
+          "unit": "mA"
+        }
+      },
+      "avs": {
+        "min_mv": {
+          "bits": [
+            8,
+            15
+          ],
+          "step": 100
+        },
+        "max_mv": {
+          "bits": [
+            17,
+            25
+          ],
+          "step": 100
+        },
+        "pdp_w": {
+          "bits": [
+            0,
+            7
+          ],
+          "unit": "W"
+        }
+      }
+    }
+  },
+  "safety": {
+    "max_voltage_mv": 21000,
+    "max_current_ma": 5000,
+    "pps_step_mv": 100,
+    "query_cooldown_ms": 500,
+    "query_timeout_ms": 1200,
+    "query_max_pending": 2
+  },
+  "hardware_capabilities": {
+    "epr_power_enabled": 0,
+    "has_vbus_adc": 0,
+    "has_dplus_dminus": 0,
+    "cable_emark_observable": 1,
+    "pd_revision": 3
+  },
+  "queries": [
+    "getstatus",
+    "getpps",
+    "identify",
+    "svids",
+    "modes",
+    "srcext",
+    "manuinfo",
+    "battery",
+    "country"
+  ],
+  "experiment_levels": [
+    {
+      "level": "R0",
+      "name": "observation",
+      "default": true
+    },
+    {
+      "level": "R1",
+      "name": "standard informational query",
+      "default": true
+    },
+    {
+      "level": "R2",
+      "name": "standard power request within validated limits",
+      "default": true
+    },
+    {
+      "level": "R3",
+      "name": "state-changing experiment",
+      "default": false
+    },
+    {
+      "level": "R4",
+      "name": "unknown/vendor transmission",
+      "default": false
+    }
+  ],
+  "model": {
+    "model_id": 1,
+    "version": 1,
+    "feature_version": 12,
+    "kind": 1,
+    "kind_name": "naive_bayes",
+    "accuracy": 1.0,
+    "trained": "seed-online (host pipeline; firmware re-learns online)",
+    "n_samples": 64,
+    "n_valid": 16,
+    "useful_rate": 0.5312
+  },
+  "vendor_observations": [
+    {
+      "label": "PB722 (observation only)",
+      "vid": 11712,
+      "pid": 523,
+      "fw": 48,
+      "hw": 16,
+      "pdo_volts": [
+        5000,
+        9000,
+        12000,
+        15000,
+        20000
+      ],
+      "pps": "3.3-21V",
+      "battery": "Not_Supported",
+      "identity": "NAK",
+      "src_svid": "none observed",
+      "cable_sop_svid": 65280,
+      "note": "Cable SOP' SVID 0xFF00 must not be attributed to the source."
+    }
+  ],
+  "charging_transport": [
+    {
+      "name": "USB-PD",
+      "family": "standard",
+      "transport": "USB-C CC",
+      "observable": true
+    },
+    {
+      "name": "USB-C default/Rp current",
+      "family": "standard",
+      "transport": "USB-C CC (Rp)",
+      "observable": true
+    },
+    {
+      "name": "USB-PD PPS",
+      "family": "standard",
+      "transport": "USB-C CC",
+      "observable": true
+    },
+    {
+      "name": "USB-PD EPR/AVS",
+      "family": "standard",
+      "transport": "USB-C CC (protocol), >20V electrical",
+      "observable": true
+    },
+    {
+      "name": "USB-PD VDM/SVDM",
+      "family": "standard",
+      "transport": "USB-C CC",
+      "observable": true
+    },
+    {
+      "name": "BC1.2",
+      "family": "proprietary",
+      "transport": "D+/D-",
+      "observable": false
+    },
+    {
+      "name": "QC (Quick Charge)",
+      "family": "proprietary",
+      "transport": "D+/D-",
+      "observable": false
+    },
+    {
+      "name": "AFC (Adaptive Fast Charging)",
+      "family": "proprietary",
+      "transport": "D+/D- (Samsung)",
+      "observable": false
+    },
+    {
+      "name": "Huawei SuperCharge (SCP/FCP)",
+      "family": "proprietary",
+      "transport": "D+/D-",
+      "observable": false
+    },
+    {
+      "name": "VOOC/SUPERVOOC (OPPO/OnePlus/Realme)",
+      "family": "proprietary",
+      "transport": "D+/D- + VBUS signalling",
+      "observable": false
+    },
+    {
+      "name": "Vivo FlashCharge",
+      "family": "proprietary",
+      "transport": "proprietary D+/D-",
+      "observable": false
+    },
+    {
+      "name": "Xiaomi Mi/Redmi charging",
+      "family": "proprietary",
+      "transport": "USB-PD + proprietary D+/D-",
+      "observable": "partial"
+    },
+    {
+      "name": "USB-PD + vendor UVDM",
+      "family": "vendor",
+      "transport": "USB-C CC (UVDM)",
+      "observable": true
+    }
+  ],
+  "packet_schemas": [
+    {
+      "message": "Source_Capabilities",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 1,
+      "kind": "data",
+      "nobjects": "1..7",
+      "header_bits": {
+        "type": [
+          0,
+          4
+        ],
+        "port_data_role": [
+          6,
+          6
+        ],
+        "spec_rev": [
+          7,
+          7
+        ],
+        "port_power_role": [
+          9,
+          9
+        ],
+        "msgid": [
+          10,
+          11
+        ],
+        "nobjects": [
+          12,
+          14
+        ],
+        "extended": [
+          15,
+          15
+        ]
+      },
+      "payload": "PDO[0..n-1] (Fixed/Variable/Battery/PPS/AVS/EPR)",
+      "response": "Request->Accept->PS_RDY"
+    },
+    {
+      "message": "Request",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 2,
+      "kind": "data",
+      "nobjects": 1,
+      "payload": "RDO",
+      "response": "Accept | Reject | Wait | Not_Supported"
+    },
+    {
+      "message": "Accept",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 3,
+      "kind": "control",
+      "nobjects": 0,
+      "payload": "none",
+      "response": "PS_RDY"
+    },
+    {
+      "message": "Reject",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 4,
+      "kind": "control",
+      "nobjects": 0,
+      "payload": "none",
+      "response": "None"
+    },
+    {
+      "message": "Wait",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 12,
+      "kind": "control",
+      "nobjects": 0,
+      "payload": "none",
+      "response": "None"
+    },
+    {
+      "message": "PS_RDY",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 6,
+      "kind": "control",
+      "nobjects": 0,
+      "payload": "none",
+      "response": "None"
+    },
+    {
+      "message": "GoodCRC",
+      "protocol": "USB-PD",
+      "sop": "SOP/SOP'/SOP''",
+      "type": 1,
+      "kind": "control",
+      "nobjects": 0,
+      "payload": "RxMessageID",
+      "response": "None (link-level)"
+    },
+    {
+      "message": "Get_Source_Cap",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 7,
+      "kind": "control",
+      "nobjects": 0,
+      "payload": "none",
+      "response": "Source_Capabilities"
+    },
+    {
+      "message": "Get_Status",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 18,
+      "kind": "control",
+      "nobjects": 0,
+      "payload": "none",
+      "response": "Ext_Status"
+    },
+    {
+      "message": "Get_PPS_Status",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 20,
+      "kind": "control",
+      "nobjects": 0,
+      "payload": "none",
+      "response": "Ext_PPS_Status"
+    },
+    {
+      "message": "PPS_Status",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 12,
+      "kind": "extended",
+      "nobjects": 0,
+      "payload": "extended header + PPS status",
+      "response": "None"
+    },
+    {
+      "message": "Vendor_Defined",
+      "protocol": "USB-PD",
+      "sop": "SOP/SOP'/SOP''",
+      "type": 15,
+      "kind": "data",
+      "nobjects": "1..7",
+      "payload": "VDM header + VDOs",
+      "response": "VDM ACK/NAK/BUSY"
+    },
+    {
+      "message": "Discover_Identity",
+      "protocol": "USB-PD VDM",
+      "sop": "SOP/SOP'/SOP''",
+      "type": 15,
+      "kind": "vdm",
+      "payload": "VDM hdr cmd=0x01",
+      "response": "Identity VDOs or NAK"
+    },
+    {
+      "message": "Discover_SVIDs",
+      "protocol": "USB-PD VDM",
+      "sop": "SOP/SOP'/SOP''",
+      "type": 15,
+      "kind": "vdm",
+      "payload": "VDM hdr cmd=0x02",
+      "response": "SVID list or NAK"
+    },
+    {
+      "message": "Discover_Modes",
+      "protocol": "USB-PD VDM",
+      "sop": "SOP/SOP'/SOP''",
+      "type": 15,
+      "kind": "vdm",
+      "payload": "VDM hdr cmd=0x03",
+      "response": "Mode VDOs or NAK"
+    },
+    {
+      "message": "Soft_Reset",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": 13,
+      "kind": "control",
+      "nobjects": 0,
+      "payload": "none",
+      "response": "Accept->PS_RDY"
+    },
+    {
+      "message": "Hard_Reset",
+      "protocol": "USB-PD",
+      "sop": "SOP",
+      "type": null,
+      "kind": "ordered_set",
+      "nobjects": 0,
+      "payload": "ordered set",
+      "response": "Source_Capabilities"
+    }
+  ],
+  "scale_notes": {
+    "log2_table_scale": 4096,
+    "max_nibble_entropy_bits": 4,
+    "unknown_signature_freq_x1000": "packets/sec * 1000",
+    "confidence_range": [
+      0,
+      100
+    ]
+  }
+}
