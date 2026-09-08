@@ -496,3 +496,25 @@ unreviewable. The extraction is **byte-identical** to the archive contents
 honoured, so build outputs are excluded. If you would rather keep the tree
 packed, say so and I will drop that commit and keep only the two fix commits —
 but then the diff cannot be reviewed file-by-file.
+
+---
+
+## Round 3 (branch `arena/01a07fb0-usb-ucpd`, commits `1962f56..8478fb5`)
+
+1. **CLI help listing** — cross-checked every command in the two dispatchers
+   against what `help` printed. Added the `oled` command and the `dts
+   read|temp` / `dts status` sub-commands. Rewrote the APIE block, which
+   wrongly implied the intelligence commands only worked with an `ap` prefix
+   (they all work bare) and listed `raw`/`packets` and `knowledge`/`db` as
+   aliases when they are separate commands with different arguments.
+   60/60 commands now listed; nothing invented.
+2. **0.96" 128x64 I2C OLED on I2C2**, sharing the bus with the INA226 — five
+   pages (bus volts / current / power / requested V+A / protocol), PC13 one
+   press = next page, two presses = request the next SPR fixed PDO.
+   Fully additive and self-disabling: with no display fitted, every entry
+   point is a no-op and nothing else in the firmware changes.
+
+Build: PASS, 89 sources, 0 warnings. Flash 207 808 B, RAM 35 104 B.
+cppcheck: no new findings (3 pre-existing baseline false positives).
+
+Full detail in **ROUND3_REPORT.md**.
