@@ -18,8 +18,9 @@ Round 1 is untouched: every commit below is appended on top of `c635a7a`.
 | 2 | `e167a0e` | Bug C — CLI help text now matches the real dispatcher |
 | 3 | `28cfd8b` | Bug A(a) — serial descriptor built once, before the pull-up |
 | 4 | `2d3d2a3` | Bug A(a) — serial descriptor can no longer be a run of NULs |
-| 5 | `00eec72` | Bug A(b)/(c) — never assert the pull-up on an unverified PHY |
-| 6 | `8af8ff0` | Bug D sweep — 1 real OOB read, 2 latent defects, 1 build-time guard |
+| 5 | `ef5c092` | Bug A(b)/(c) — never assert the pull-up on an unverified PHY |
+| 6 | `e110406` | Bug A(b) — re-check `USB33RDY` immediately before connecting; `vbus_sensing_enable` documented as intentional |
+| 7 | `8af8ff0` | Bug D sweep — 1 real OOB read, 2 latent defects, 1 build-time guard |
 
 Bug B produced **no change** — see §3.
 
@@ -58,10 +59,22 @@ Being explicit, because this matters for how much weight to put on each fix.
   ring-buffer cursors are dropped for sinks that cannot drain. I looked hard
   for a "port exists but is dead" state machine bug here and did not find one.
 
-**Not established (no hardware in the loop).** Whether the board is
-bus-powered from the USB-C VBUS or externally powered. This is the one fact
-that would decide definitively between the remaining mechanisms, and it is not
-inferable from the repository. It is the first item on the re-test list.
+**Answered by the owner (2026-09-08).** The board **can be powered from VBUS
+and can also be powered externally**, and **it does not use VBUS sensing
+pins** — there is no VBUS-sense pin wired to the OTG controller.
+
+Two consequences, and they change the picture:
+
+* `vbus_sensing_enable = DISABLE` is **correct and must stay that way**.
+  Enabling it would make the core gate its session state on
+  `GCCFG.VBUSBSEN`/`VBUSASEN` reading an unconnected pin, which can prevent
+  the device from connecting at all. A comment now records this at the
+  assignment so nobody "fixes" it.
+* Bus-powered operation makes the supply ramp a first-class suspect. On a cold
+  plug the sequence is VBUS → board 3.3 V → MCU out of reset, and the CPU
+  starts executing as soon as VDD crosses the POR threshold — **well before
+  the USB 3.3 V domain is stable**. That is the (b) race, and it now has a
+  concrete mechanism (see §2.2, third bullet).
 
 ### 2.2 Fixes applied
 
@@ -117,6 +130,33 @@ The same trap in `Appli/Core/Src/stm32h7rsxx_hal_msp.c:75` (called from
 `HAL_Init()`) is removed for the same reason — a VDD33USB failure should not
 hang the whole board.
 
+**(b, supply ramp) A final gate in `USBD_LL_Start()`, at the last possible
+moment.** `HAL_PCD_MspInit()` checks the detector, but that still runs inside
+`HAL_PCD_Init()`, tens of microseconds before `HAL_PCD_Start()` clears
+`DCTL.SFTDISCON`. `USBD_LL_Start()` now re-checks both the gate flag **and**
+`PWR_CSR2.USB33RDY` immediately before connecting, and returns `USBD_FAIL`
+instead of connecting if either is down.
+
+This is the mechanism that best fits the reported pattern. On a cold
+bus-powered plug, VDD33USB has to come up from nothing; `USB33RDY` is the only
+supply-ready signal available without a VBUS-sense pin, and the old code
+connected without ever looking at it. On a warm reset the domain is already
+charged and `USB33RDY` is already set — **which is exactly why the fault
+clears itself on the next reset.**
+
+**(b) VBUS sensing: confirmed correct, comment added.** Given no VBUS-sense
+pin, `hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE` stays, with a
+comment explaining why enabling it would break the device. Supply readiness is
+tracked through `USB33RDY` instead.
+
+**(b) Init order left alone, deliberately.** I considered moving
+`MX_USB_DEVICE_Init()` after `MX_USBPD_Init()` so the Type-C layer runs first.
+It buys nothing and I am not doing it: since the board can cold-start from
+VBUS, it must have hardware Rd on CC (otherwise there would be no VBUS to boot
+from — no power, no MCU, no Rd). VBUS is therefore present as soon as the cable
+is plugged, independent of firmware, so the PD stack is not what brings the
+supply up. Reordering would only delay the console and change log ordering.
+
 **(b, secondary) CDC EP2 TX FIFO.** `HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 2,
 0x40)` added. `CDC_CMD_EP` (0x82, the notification endpoint) is opened by
 `USBD_CDC_Init`; with `DIEPTXF[1]` left at its reset value of depth 0 at
@@ -142,12 +182,23 @@ passes at `HAL_Init()` time on a healthy board. Honest confidence:
 | --- | --- | --- |
 | Serial built before connect | Low–medium | High |
 | Never emit a NUL serial | Medium | High |
-| PHY/clock readiness gate | Low–medium | High |
+| PHY/clock + `USB33RDY` readiness gate | **Medium–high** (raised, see below) | High |
 | EP2 TX FIFO | Very low | High (defensive) |
 | `info` clock read-back | n/a (diagnostic) | High |
 
+The readiness gate is the one I now rate highest. With "bus-powered is a real
+case" confirmed, there is a concrete, non-speculative mechanism: on a cold plug
+the CPU runs before VDD33USB is stable, `USB33RDY` is the only available
+supply-ready indicator, and the old code connected without ever reading it —
+while a warm reset starts from an already-charged domain. That last detail is
+the reported "only self-heals on the next reset". I still cannot *prove* it
+fired, and it does not explain why the healthy case is the majority case
+rather than the exception; a marginal ramp would be expected to correlate with
+plug timing, which is worth watching on the bench.
+
 **No delay or retry hack was added.** Every change is either a correctness fix
-or a gate that refuses to connect on a *proven* bad state.
+or a gate that refuses to connect on a *proven* bad state. The `USB33RDY` gate
+is a readiness check on a hardware signal, not a `HAL_Delay()`.
 
 ---
 
@@ -213,7 +264,7 @@ inventory; `pd stats|packets|state` delegation verified at `app_cli.c:754-764`.
 | # | File:line | Issue | Risk of changing | Suggested fix |
 | --- | ---: | --- | --- | --- |
 | 6 | `Boot/Core/Src/main.c:103` `JumpToApplication()` | Boot enables GPDMA1 and XSPI1 interrupts and leaves them **enabled and possibly pending**. It then sets `SCB->VTOR = APP_XIP_BASE`, restores PRIMASK (re-enabling interrupts) and branches — so an IRQ can fire into *Appli's* handler with Appli's handles still uninitialised, before `HAL_Init()` runs. | **Bootloader.** Non-deterministic and hard to trigger, but it is the only genuine cross-handoff hazard I found. | After `__disable_irq()` and before `__set_PRIMASK(primask_bit)`, clear `NVIC->ICPR[]` and write `NVIC->ICER[]` for every IRQ Boot enabled (or `HAL_NVIC_DisableIRQ(XSPI1_IRQn)` / the GPDMA1 channels). Appli re-enables what it needs. |
-| 7 | `Appli/USB_DEVICE/Target/usbd_conf.c:483` | `hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE`. The device therefore asserts the D+ pull-up regardless of whether VBUS is present, and never notices a host-side disconnect. If the board is bus-powered from the USB-C source this is the one remaining way the pull-up can be up before VBUS is valid. | Board-dependent, and whether it matters depends on how the board is powered, which is not in the repo. Changing it can make the port stop enumerating on a self-powered board. | Decide on the bench: **if** the board is bus-powered, gate `USBD_Start()` on a VBUS-present read (or enable `vbus_sensing_enable` and wire the VBUS pin). **If** it is externally powered, leave as-is. |
+| 7 | `Appli/USB_DEVICE/Target/usbd_conf.c:483` | `hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE`. The device asserts the D+ pull-up regardless of VBUS and never notices a host-side disconnect. | **Owner confirmed there is no VBUS-sense pin on the board**, so this is now *correct by construction*: enabling it would gate the session on `VBUSBSEN`/`VBUSASEN` reading an unconnected pin and could stop the device connecting at all. | **Leave DISABLE.** A comment now records the reason at the assignment so it is not "corrected" later. Supply readiness is tracked through `PWR_CSR2.USB33RDY` instead (see §2.2). |
 | 8 | `Appli/USB_DEVICE/App/usbd_cdc_if.c:167` | `CDC_DeInit_HS()` calls `APP_LOG_OnUsbConnect()` — the wrong name for a de-init path. Harmless (the function only clears `s_tx_busy`), but it reads as a mistake and will mislead the next reader. | None functionally; cosmetic. | Call `APP_LOG_SetUsbReady(0)` and clear `s_tx_busy` explicitly, or rename the hook to something neutral such as `APP_LOG_OnUsbSessionChange()`. |
 | 9 | `Appli/Core/Src/usart.c:55,59,63,67,92`; `i2c.c:51,58,65,90`; `dts.c:50` | CubeMX-generated `Error_Handler()` traps in `HAL_UART_Init` / `HAL_I2C_Init` / `HAL_DTS_Init` failure paths — the same bricking pattern, but on static configurations that cannot fail at runtime. | Low value; enlarges the diff without changing behaviour. | If parity is wanted, degrade to "log and continue with the peripheral unavailable" as was done for USB. |
 | 10 | `Boot/Core/Src/w25qxx_xspi.c:224` | `W25QXX_Wait_Busy` unused (`-Wunused-function`). The only compiler warning in the tree. | Bootloader. | Delete the function, or mark it `__attribute__((unused))`. |
@@ -287,11 +338,11 @@ $ python3 tools/check_arm_build.py
 == Appli: 86 C sources, -T STM32H7R3Z8JX_ROMxspi1.ld
    compiled: 86 ok, 0 failed (0 with warnings)
    link: OK
-     FLASH                  196596 B /   8 MB  ( 2.34%)
+     FLASH                  196652 B /   8 MB  ( 2.34%)
      RAM                     34008 B / 440 KB  ( 7.55%)
      RAM_NONCACHEABLEBUFFER   5408 B /   8 KB  (66.02%)
      DTCM                        4 KB /  64 KB  ( 6.25%)
-   Appli.elf  1352280 bytes
+   Appli.elf  1352588 bytes
 ARM build check: PASS
 ```
 
@@ -323,10 +374,14 @@ Priorities as tabulated in §6.
 
 In priority order.
 
-1. **How is the board powered?** Bus-powered from the USB-C VBUS, or
-   externally? This is the single fact that decides sweep item 7
-   (`vbus_sensing_enable`) and it is not in the repository. If bus-powered,
-   say so and I will gate the connect on VBUS.
+1. **Cold-plug vs warm-reset A/B** (the highest-value test, now that
+   bus-powered operation is confirmed). Power the board **from VBUS only**,
+   unplug the cable, wait ~30 s for the rails to discharge, then plug it in —
+   20 times. Then repeat 20 times with a reset that does **not** remove VBUS
+   (reset button / `NVIC_SystemReset`). Expected: identical behaviour in both.
+   Before this change the cold-plug case was the one that misbehaved; if it
+   still does, the `USB33RDY` gate is not the whole story and the next step is
+   to capture the plug with a USB protocol analyser.
 2. **Serial stability.** Run `info` and confirm the serial Windows reports is
    identical across 10+ power-cycles and 10+ `NVIC_SystemReset`s. In Device
    Manager → *Details* → *Device instance path*, or
