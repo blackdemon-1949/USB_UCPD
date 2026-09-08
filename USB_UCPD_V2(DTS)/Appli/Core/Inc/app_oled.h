@@ -6,7 +6,8 @@
   * Shares I2C2 with the INA226 - the SSD1306 driver only ever issues short,
   * complete, chunked transfers, so both devices run together.
   *
-  * Pages:  0 voltage, 1 current, 2 power, 3 requested V/A, 4 protocol.
+  * Pages:  0 voltage, 1 current, 2 power, 3 requested V/A, 4 protocol,
+ *         5 SoC die temperature (DTS).
   * Key:    PC13.  One press  = next page.
   *                Two presses = request the next SPR fixed PDO (1..7).
   *
@@ -26,7 +27,7 @@ extern "C" {
 #include <stdint.h>
 
 /** Number of pages. */
-#define APP_OLED_PAGES        5U
+#define APP_OLED_PAGES        6U
 
 void APP_OLED_Init(void);
 void APP_OLED_Poll(void);

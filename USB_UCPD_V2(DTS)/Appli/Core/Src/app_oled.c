@@ -87,7 +87,8 @@ typedef enum
   PAGE_CURRENT,
   PAGE_POWER,
   PAGE_REQUEST,
-  PAGE_PROTOCOL
+  PAGE_PROTOCOL,
+  PAGE_SOC
 } Page_t;
 
 static uint8_t   s_enabled = 1U;      /* CLI 'oled off'                      */
@@ -116,6 +117,11 @@ static uint8_t   s_clicks;
 static uint32_t  s_last_click_ms;
 
 static uint8_t   s_fixed_idx;         /* last SPR fixed PDO we requested     */
+
+/* --- SoC die temperature (page 5) --------------------------------------- */
+static uint8_t   s_soc_seen;          /* 1 = at least one DTS reading        */
+static int32_t   s_soc_min;           /* coldest since boot, degrees C       */
+static int32_t   s_soc_max;           /* hottest since boot, degrees C       */
 
 /* ---------------------------------------------------------------------------
  *  Small helpers
@@ -541,6 +547,86 @@ static void draw_page_protocol(void)
   draw_footer("USB TYPE-C", (APP_PD_Port[0].Contract != 0U) ? "ON" : "OFF");
 }
 
+/* ---------------------------------------------------------------------------
+ *  Page 5 - SoC die temperature
+ * ------------------------------------------------------------------------- */
+
+/** Celsius -> the unit the owner selected with `dts unit c|f`. */
+static int32_t soc_conv(int32_t c)
+{
+  return (DTSMON_UnitIsF() != 0U) ? ((c * 9) / 5 + 32) : c;
+}
+
+/** "MIN <lo> MAX <hi>", built without printf. */
+static void soc_range(char *out, uint16_t outsz)
+{
+  static const char p1[] = "MIN ";
+  static const char p2[] = " MAX ";
+  char     lo[8];
+  char     hi[8];
+  uint16_t o = 0U;
+  uint16_t i;
+
+  if (outsz == 0U) { return; }
+
+  fmt_val(lo, sizeof(lo), soc_conv(s_soc_min), 1, 0);
+  fmt_val(hi, sizeof(hi), soc_conv(s_soc_max), 1, 0);
+
+  for (i = 0U; (p1[i] != '\0') && (o < (outsz - 1U)); i++) { out[o++] = p1[i]; }
+  for (i = 0U; (lo[i] != '\0') && (o < (outsz - 1U)); i++) { out[o++] = lo[i]; }
+  for (i = 0U; (p2[i] != '\0') && (o < (outsz - 1U)); i++) { out[o++] = p2[i]; }
+  for (i = 0U; (hi[i] != '\0') && (o < (outsz - 1U)); i++) { out[o++] = hi[i]; }
+  out[o] = '\0';
+}
+
+/** Keep the min/max window up to date every poll, not only while page 5 is
+ *  on screen, so the numbers mean something the moment you switch to it. */
+static void soc_track(void)
+{
+  int32_t t;
+
+  if (DTSMON_HasReading() == 0U) { return; }
+
+  t = DTSMON_GetTempC();
+  if (s_soc_seen == 0U)
+  {
+    s_soc_seen = 1U;
+    s_soc_min  = t;
+    s_soc_max  = t;
+    return;
+  }
+  if (t < s_soc_min) { s_soc_min = t; }
+  if (t > s_soc_max) { s_soc_max = t; }
+}
+
+static void draw_page_soc(void)
+{
+  char        v[10];
+  char        rng[20];
+  const char *unit;
+
+  draw_header("SOC TEMP", PAGE_SOC);
+  draw_frame();
+
+  if (DTSMON_HasReading() == 0U)
+  {
+    /* The DTS is clocked from the LSE, which the Boot project does not
+       start - say so plainly instead of showing a plausible-looking zero. */
+    draw_big_value("--", "C");
+    draw_footer("DTS", "NO READING");
+    return;
+  }
+
+  unit = (DTSMON_UnitIsF() != 0U) ? "F" : "C";
+
+  /* The HAL only reports whole degrees, so there is nothing to round. */
+  fmt_val(v, sizeof(v), soc_conv(DTSMON_GetTempC()), 1, 0);
+  draw_big_value(v, unit);
+
+  soc_range(rng, (uint16_t)sizeof(rng));
+  draw_footer(DTSMON_DataFresh() ? "DTS" : "DTS STALE", rng);
+}
+
 static void draw_page(void)
 {
   SSD1306_Clear();
@@ -552,6 +638,7 @@ static void draw_page(void)
     case PAGE_POWER:    draw_page_power();    break;
     case PAGE_REQUEST:  draw_page_request();  break;
     case PAGE_PROTOCOL: draw_page_protocol(); break;
+    case PAGE_SOC:      draw_page_soc();      break;
     default:            draw_page_volt();     break;
   }
 
@@ -804,6 +891,7 @@ void APP_OLED_Poll(void)
   }
 
   key_tick();
+  soc_track();
 
   /* Push at most one frame chunk, then let the loop get on with real work. */
   if (SSD1306_UpdateStep() < 0)
