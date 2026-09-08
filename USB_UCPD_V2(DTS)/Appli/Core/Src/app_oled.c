@@ -22,6 +22,7 @@
 #include "app_pd.h"
 #include "app_board.h"
 #include "ina226.h"
+#include "dtsmon.h"
 #include "ext_i2c.h"
 #include "usbpd_def.h"
 #include "usbpd_hw_if.h"
@@ -38,9 +39,18 @@
 #define OLED_I2C_ADDR         SSD1306_ADDR_DEFAULT
 
 #define KEY_POLL_MS             5U   /* key sampling period                  */
-#define KEY_DEBOUNCE_MS        30U   /* ignore bounce for this long          */
-#define KEY_DOUBLE_MS         320U   /* second press must land inside this   */
+/* Debounce is a CONSECUTIVE-SAMPLE count, not a timer.  A timer only proves
+   that the level changed once and then some time passed, so a single glitch
+   can arm it.  Requiring N samples in a row that all agree means one spike
+   can never be mistaken for a press.  5 samples x 5 ms = 25 ms, which also
+   covers mechanical bounce on a tactile switch. */
+#define KEY_STABLE_N            5U   /* consecutive identical samples        */
+#define KEY_DOUBLE_MS         350U   /* second press must land inside this   */
 #define KEY_CALIBRATE_MS      250U   /* idle-level auto-detect window        */
+/* A press held longer than this is not a press - the pin is being driven or
+   shorted.  Ignore it until it releases, so a stuck level cannot sit in the
+   state machine quietly counting clicks. */
+#define KEY_STUCK_MS         4000U
 
 #define MSG_SHOW_MS          1600U   /* transient message duration           */
 /* If the pin sits at one level untouched for this long, that level is the
@@ -107,14 +117,27 @@ static uint32_t  s_cal_end_ms;
 static uint8_t   s_cal_first;
 static uint8_t   s_cal_mixed;
 
-static uint8_t   s_last_raw;
-static uint8_t   s_stable_raw;
-static uint8_t   s_idle_level;     /* raw level read while untouched */
-static uint16_t  s_click_total;    /* presses ever counted (diagnostics) */
-static uint32_t  s_last_change_ms;
-static uint8_t   s_down;
-static uint8_t   s_clicks;
-static uint32_t  s_last_click_ms;
+/* Key state machine.  The old code inferred press and release from a single
+   level change plus one timer, which a floating pin defeated completely:
+   the release edge arrived late and at random, so a press was either
+   swallowed or counted twice. */
+typedef enum
+{
+  K_IDLE    = 0,   /* nothing happening, waiting for a press              */
+  K_DOWN,          /* press confirmed, waiting for it to be released       */
+  K_WAIT_2ND,      /* one press released, watching for a second one        */
+  K_IGNORE         /* stuck / spurious level, wait for it to go away       */
+} key_state_t;
+
+static key_state_t s_kstate;
+static uint32_t    s_kstate_ms;    /* when the current state was entered   */
+static uint8_t     s_same_cnt;     /* consecutive identical raw samples    */
+static uint8_t     s_last_raw;
+static uint8_t     s_stable_raw;   /* debounced level                      */
+static uint8_t     s_idle_level;   /* level the pin sits at when untouched */
+static uint32_t    s_idle_since_ms;
+static uint16_t    s_click_total;  /* presses ever counted (diagnostics)   */
+static uint8_t     s_clicks;
 
 static uint8_t   s_fixed_idx;         /* last SPR fixed PDO we requested     */
 
@@ -759,16 +782,22 @@ static void key_finish_calibration(void)
 
   if (s_cal_mixed != 0U)
   {
-    s_active_high = 0U;               /* documented board behaviour */
-    APP_LOG_Write("oled: key level not stable at boot - assuming active low\r\n");
+    /* The level moved during the window: the button was being held, or the
+       pin was still settling.  Falling back to "active low" here used to
+       leave the key dead on this board, whose schematic is
+       3V3 - button - 330R - PC13 (active HIGH).  Keep the documented
+       polarity; the idle re-learn in key_tick() corrects it within
+       KEY_RELEARN_MS if the board really is wired the other way. */
+    s_active_high = 1U;
+    APP_LOG_Write("oled: key level not stable at boot - assuming active high\r\n");
   }
   else
   {
     /* idle level is whatever we sampled; pressed is the other one */
     s_active_high = (s_cal_first == 0U) ? 1U : 0U;
   }
-  s_idle_level   = s_cal_first;
-  s_last_change_ms = HAL_GetTick();
+  s_idle_level    = s_cal_first;
+  s_idle_since_ms = HAL_GetTick();
   APP_LOG_Printf("oled: PC13 key is active %s\r\n",
                  s_active_high ? "high" : "low");
 }
@@ -784,6 +813,7 @@ static void key_tick(void)
 
   raw = key_pressed_raw();
 
+  /* --- start-up idle-level auto-detect (only when `oled key auto` asks) -- */
   if (s_calibrating != 0U)
   {
     if (raw != s_cal_first) { s_cal_mixed = 1U; }
@@ -791,23 +821,33 @@ static void key_tick(void)
     return;
   }
 
-  /* debounce */
-  if (raw != s_last_raw)
+  /* --- debounce: integrate, and only act on a level that has been stable
+         for KEY_STABLE_N consecutive polls. -------------------------------- */
+  if (raw == s_last_raw)
   {
-    s_last_raw      = raw;
-    s_last_change_ms = now;
-    return;
+    if (s_same_cnt < 255U) { s_same_cnt++; }
   }
-  if ((int32_t)(now - s_last_change_ms) < (int32_t)KEY_DEBOUNCE_MS) { return; }
-  s_stable_raw = raw;
+  else
+  {
+    s_last_raw = raw;
+    s_same_cnt = 1U;
+  }
+  if (s_same_cnt < KEY_STABLE_N) { return; }   /* still settling */
 
-  /* Re-learn the polarity whenever the pin has been quietly at one level for
-     a while.  This is what makes PC13 work even if the start-up calibration
-     saw a floating pin or a button that was already held.  Skipped while a
-     press or a click is in progress, and it self-corrects KEY_RELEARN_MS
-     after the button is released, so a long hold cannot wedge it. */
-  if ((s_down == 0U) && (s_clicks == 0U) && (raw != s_idle_level) &&
-      ((int32_t)(now - s_last_change_ms) >= (int32_t)KEY_RELEARN_MS))
+  if (raw != s_stable_raw)
+  {
+    s_stable_raw     = raw;
+    s_idle_since_ms  = now;
+  }
+
+  /* --- idle polarity re-learn.  With the pull-down fitted the idle level is
+         deterministically LOW, so this is only a safety net for a board whose
+         key is wired the other way or whose pin is damaged.  Skipped while a
+         press or a pending click is in flight, and it self-corrects
+         KEY_RELEARN_MS after the key is released, so a long hold cannot
+         wedge it. ---------------------------------------------------------- */
+  if ((s_kstate == K_IDLE) && (raw != s_idle_level) &&
+      ((int32_t)(now - s_idle_since_ms) >= (int32_t)KEY_RELEARN_MS))
   {
     s_idle_level  = raw;
     s_active_high = (raw == 0U) ? 1U : 0U;
@@ -817,33 +857,70 @@ static void key_tick(void)
 
   pressed = (s_active_high != 0U) ? (raw != 0U) : (raw == 0U);
 
-  if (pressed && (s_down == 0U))
+  switch (s_kstate)
   {
-    s_down = 1U;
-    return;                            /* count it on release */
-  }
-  if ((pressed == 0U) && (s_down != 0U))
-  {
-    s_down = 0U;
-    s_clicks++;
-    s_click_total++;
-    s_last_click_ms = now;
-    return;
-  }
+    case K_IDLE:
+      if (pressed != 0U)
+      {
+        s_kstate    = K_DOWN;
+        s_kstate_ms = now;
+      }
+      break;
 
-  /* No further press inside the double-press window: act on what we have. */
-  if ((s_clicks != 0U) && ((int32_t)(now - s_last_click_ms) >= (int32_t)KEY_DOUBLE_MS))
-  {
-    if (s_clicks >= 2U)
-    {
-      step_request();
-    }
-    else
-    {
-      s_page = (Page_t)(((uint8_t)s_page + 1U) % APP_OLED_PAGES);
-      s_next_draw_ms = 0U;             /* redraw immediately */
-    }
-    s_clicks = 0U;
+    case K_DOWN:
+      if (pressed == 0U)
+      {
+        /* Released.  Count it, and if this is already the second press run
+           the action at once instead of making the user wait out the
+           double-press window. */
+        s_clicks++;
+        s_click_total++;
+        s_kstate    = K_WAIT_2ND;
+        s_kstate_ms = now;
+        if (s_clicks >= 2U)
+        {
+          step_request();
+          s_clicks = 0U;
+          s_kstate = K_IGNORE;      /* ignore any third press briefly */
+        }
+      }
+      else if ((int32_t)(now - s_kstate_ms) >= (int32_t)KEY_STUCK_MS)
+      {
+        /* Held far longer than any press: treated as a stuck level. */
+        s_clicks    = 0U;
+        s_kstate    = K_IGNORE;
+        s_kstate_ms = now;
+      }
+      break;
+
+    case K_WAIT_2ND:
+      if (pressed != 0U)
+      {
+        s_kstate    = K_DOWN;       /* second press of a double */
+        s_kstate_ms = now;
+      }
+      else if ((int32_t)(now - s_kstate_ms) >= (int32_t)KEY_DOUBLE_MS)
+      {
+        s_page          = (Page_t)(((uint8_t)s_page + 1U) % APP_OLED_PAGES);
+        s_next_draw_ms  = 0U;       /* redraw immediately */
+        s_clicks        = 0U;
+        s_kstate        = K_IDLE;
+        s_kstate_ms     = now;
+      }
+      break;
+
+    case K_IGNORE:
+      if (pressed == 0U)
+      {
+        s_clicks    = 0U;
+        s_kstate    = K_IDLE;
+        s_kstate_ms = now;
+      }
+      break;
+
+    default:
+      s_kstate = K_IDLE;
+      break;
   }
 }
 
@@ -859,14 +936,15 @@ void APP_OLED_Init(void)
   s_msg[0]        = '\0';
   s_msg_until_ms  = 0U;
   s_fixed_idx     = 0U;
-  s_active_high   = 0U;
-  s_down          = 0U;
+  s_active_high   = 1U;   /* schematic: 3V3 - button - 330R - PC13 */
+  s_kstate        = K_IDLE;
+  s_kstate_ms     = 0U;
+  s_same_cnt      = 0U;
   s_clicks        = 0U;
   s_last_raw      = 2U;                /* impossible value -> first poll syncs */
-  s_stable_raw    = 0U;
-  s_last_change_ms = 0U;
-  s_last_click_ms = 0U;
-  s_idle_level    = 2U;   /* impossible -> first poll syncs */
+  s_stable_raw    = 2U;                /* impossible -> first stable read syncs */
+  s_idle_level    = 2U;                /* impossible -> first poll syncs */
+  s_idle_since_ms = 0U;
   s_click_total   = 0U;
 
   SSD1306_Init((uint8_t)OLED_I2C_ADDR);
