@@ -13,6 +13,7 @@
 #include "ext_uart.h"
 #include "ext_dts.h"
 #include "dtsmon.h"
+#include "app_oled.h"
 #include "usbd_conf.h"
 #include <string.h>
 #include <stdlib.h>
@@ -164,55 +165,47 @@ void APP_CLI_PrintHelp(void)
     "  dts auto on|off        periodic reading every second (default on)\r\n"
     "  dts period <ms>        change the periodic reading interval\r\n"
     "  dts unit c|f           report in degrees C or degrees F\r\n"
+    "  dts read | dts temp    one-shot read (same as bare dts)\r\n"
+    "  dts status             DTS state, last sample and interval\r\n"
     "  led on|off|hb          LED override\r\n"
     "  help | ?               this list\r\n"
     "\r\n"
+    "  -- 0.96in OLED page (SSD1306 on I2C2, shared with the INA226) --\r\n"
+    "  oled                   page status and detected key polarity\r\n"
+    "  oled on|off            enable/disable the page (off blanks the panel)\r\n"
+    "  oled page <0-4>        0 volt  1 current  2 power  3 requested  4 protocol\r\n"
+    "  oled addr <hex>        I2C address (default 3c; 3d on some modules)\r\n"
+    "  oled key high|low|auto PC13 polarity (auto = detect idle level at boot)\r\n"
+    "  PC13: one press = next page, two presses = request next SPR fixed PDO\r\n"
+    "\r\n"
     "  -- Advanced PD Intelligence Engine (APIE) --\r\n"
-    "  ap | apie              intelligence status (state, safe, exp level)\r\n"
-    "  ap <sub>               alias for any intelligence sub-command below\r\n"
-    "  ap status|stats        status / analyzer+txn+unknown counters\r\n"
-    "  ap raw|packets [all]   dump the bounded raw packet ring\r\n"
-    "  ap source|profile|fingerprint   source profile / fingerprint\r\n"
-    "  ap txn                 list completed/active transactions\r\n"
-    "  ap feature             print the feature vector\r\n"
-    "  ap unknown|patterns|hypotheses  unrecognized/recurring behavior\r\n"
-    "  ap knowledge|db        knowledge database status + validation\r\n"
-    "  ap scheduler           adaptive query scheduler state\r\n"
-    "  ap ml                  model status + online learning counters\r\n"
-    "  ap predict <q>         classify a query (0-8) as useful or not\r\n"
-    "  ap experiment [set <0-4>]  experiment level (default 2)\r\n"
-    "  ap replay              host-side replay pointer (no live transmit)\r\n"
-    "  ap safety              safety limits + hardware capability flags\r\n"
-    "  selftest [scope]       one-command non-destructive self-test\r\n"
-    "  selftest [all|quick|full|pd|decoder|ml|database|flash]  scoped\r\n"
-    "  packets [raw|decoded|unknown|tx|rx] [all]  packet ring views\r\n"
-    "  transactions [active|history]  transaction views\r\n"
-    "  safe | safe-mode on|off  disable/enable intelligence (PD sink stays up)\r\n"
-    "  pd stats | packets [all] | state   PD PHY/PE counters + raw ring\r\n"
-    "  db [dump|status]       knowledge database status\r\n"
-    "  db validate            CRC-validate every stored profile\r\n"
-    "  db compact             compact/re-index the store\r\n"
-    "  db test                scratch store/readback self-test\r\n"
-    "  db wear|writes|erases|checkpoint   flash-endurance accounting\r\n"
-    "  raw [clear|dump [all]|stats|export]  raw packet ring, no ap prefix\r\n"
-
+    "  Every command below works either BARE or with an \"ap\" prefix: \"stats\"\r\n"
+    "  and \"ap stats\" run the same code.  The one exception is bare \"status\",\r\n"
+    "  which prints the PD status above - use \"apie\" or \"ap status\" for the\r\n"
+    "  intelligence status.\r\n"
     "\r\n"
-
-    "  Every \"ap <sub>\" above also works bare, without the ap prefix:\r\n"
-
-    "    apie stats knowledge replay raw txn transactions source profile\r\n"
-
-    "    profiles fingerprint feature features unknown patterns hypotheses\r\n"
-
-    "    ml predict scheduler experiment safety db diag selftest safe\r\n"
-
-    "  (bare \"status\" is the PD status above, not \"ap status\")\r\n"
-
-    "\r\n"
-
-    "  safety [status|limits] safety limits + hardware capability flags\r\n"
-    "  diag pd|rx|tx|txn|ucpd|usb|queue|timing|cpu|memory|faults|decoder|\r\n"
-    "       profile|unknown|knowledge|trace|ml|scheduler|packets|db|safety|flash\r\n"
+    "  apie | ap status        intelligence status (state, safe, exp level)\r\n"
+    "  stats                   analyzer + transaction + unknown counters\r\n"
+    "  packets [view] [all]    packet ring; view: raw|decoded|unknown|tx|rx|all\r\n"
+    "  knowledge               what the engine has learned about this source\r\n"
+    "  replay                  host-side replay pointer (no live transmit)\r\n"
+    "  selftest [scope]        scope: all|quick|full|pd|decoder|ml|database|flash\r\n"
+    "  safe | safe-mode on|off disable/enable intelligence (sink stays up)\r\n"
+    "  pd stats|packets [all]|state   PD PHY/PE counters + raw ring\r\n"
+    "  raw [clear|dump [all]|stats|export]      raw packet ring\r\n"
+    "  source|profile|profiles source profile (\"fingerprint\" = signature only)\r\n"
+    "  txn | transactions      transactions; add active|history to transactions\r\n"
+    "  feature | features      feature vector\r\n"
+    "  unknown|patterns|hypotheses   unrecognised / recurring behaviour\r\n"
+    "  ml                      model status + online learning counters\r\n"
+    "  predict <query>         classify a query as useful or not\r\n"
+    "  scheduler               adaptive query scheduler state\r\n"
+    "  experiment [set <0-4>]  show or set the experiment level\r\n"
+    "  db [dump|status|validate|compact|test|wear|writes|erases|checkpoint]\r\n"
+    "  safety [status|limits]  safety limits + hardware capability flags\r\n"
+    "  diag <scope>            scope: pd|rx|tx|txn|decoder|profile|unknown|\r\n"
+    "                          knowledge|ucpd|usb|queue|timing|cpu|memory|ml|\r\n"
+    "                          scheduler|packets|db|safety|faults|trace|flash\r\n"
     "\r\n"
     "wire a PD source to PM0 (CC1) or PM1 (CC2) plus GND. The USB Type-C port is this\r\n"
     "console; the USB-PD trace for STM32CubeMonitor-UCPD is on USART1 PA9/PA10 @921600.\r\n"
@@ -775,6 +768,10 @@ static void handle_line(char *line)
   {
     APP_BOARD_PrintInfo();
     print_usb_clocks();
+  }
+  else if (strcmp(argv[0], "oled") == 0)
+  {
+    APP_OLED_Cli(argc, argv);
   }
   else if (strcmp(argv[0], "pd") == 0)
   {
