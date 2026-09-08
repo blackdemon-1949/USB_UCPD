@@ -20,11 +20,18 @@
 #include "usbd_cdc_if.h"
 #include "usb_device.h"
 #include "ext_uart.h"
+#include "main.h"   /* __get_PRIMASK / __disable_irq */
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
 
-#define LOG_Q_SIZE       2048U
+/* The `help` listing is ~6.9 kB and is queued by a single APP_LOG_Write()
+ * call on every host connect.  At 2048 bytes the ring could not hold it, so
+ * the listing was silently truncated mid-word and whatever the PD stack
+ * printed next arrived in the middle of a line - which is what the console
+ * "corruption" actually was.  Sized so a full banner + help dump fits with
+ * headroom left over for PD/INA226 traffic while it drains. */
+#define LOG_Q_SIZE       12288U
 /* Bytes handed to USART2 per super-loop pass.  At 115200 8N1 a 64-byte chunk
  * takes ~5.6 ms on the wire, which is the longest the loop is held. */
 #define LOG_UART_CHUNK   64U
@@ -146,6 +153,26 @@ static uint16_t q_count_slowest(void)
 
 void APP_LOG_WriteRaw(const uint8_t *data, uint16_t len)
 {
+  uint32_t primask;
+
+  if (data == NULL)
+  {
+    return;
+  }
+
+  /* One message is queued as one indivisible unit.
+   *
+   * PD notifications reach APP_LOG_* from interrupt context (UCPD1 runs at
+   * priority 0, above everything else).  A writer pre-empted between two
+   * bytes of its own message left the ring holding the first two characters
+   * of one line, then all of the next line, then the rest of the first one -
+   * two messages interleaved byte by byte, which no amount of buffering at
+   * the reader can undo.  Masking interrupts for the whole enqueue makes
+   * each call atomic.  The window is short and bounded: at most `len`
+   * byte stores into an internal ring. */
+  primask = __get_PRIMASK();
+  __disable_irq();
+
   for (uint16_t i = 0; i < len; i++)
   {
     uint16_t next;
@@ -158,6 +185,8 @@ void APP_LOG_WriteRaw(const uint8_t *data, uint16_t len)
     s_q[s_head] = data[i];
     s_head = next;
   }
+
+  __set_PRIMASK(primask);
 }
 
 void APP_LOG_Write(const char *s)
