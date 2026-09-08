@@ -362,11 +362,68 @@ void APIE_OnVdmSvids(uint8_t port, const uint16_t *svids, uint8_t n, uint8_t ok)
   inform_reply(APIE_QUERY_SVIDS, (ok != 0U) ? 1U : 0U);
 }
 
+/* Rolling window of recent hard resets.  If the link cannot stay up for more
+ * than a few seconds while the engine is talking on it, the engine is the
+ * problem, and continuing to talk guarantees the source never settles. */
+#define APIE_HR_WINDOW_MS      10000U
+#define APIE_HR_TRIP_COUNT        3U
+
+static uint32_t s_hr_stamps[APIE_HR_TRIP_COUNT];
+static uint8_t  s_hr_next;
+static uint8_t  s_hr_tripped;
+
+uint8_t APIE_HardResetGuardTripped(void)
+{
+  return s_hr_tripped;
+}
+
+void APIE_HardResetGuardClear(void)
+{
+  s_hr_tripped = 0U;
+  s_hr_next = 0U;
+  for (uint8_t i = 0U; i < APIE_HR_TRIP_COUNT; i++)
+  {
+    s_hr_stamps[i] = 0U;
+  }
+}
+
 void APIE_OnHardReset(uint8_t port)
 {
+  uint32_t now = HAL_GetTick();
+  uint8_t  n = 0U;
+
   (void)port;
   APIE_Profile_OnHardReset();
   s_pend_reset = 1U;
+
+  s_hr_stamps[s_hr_next] = now;
+  s_hr_next = (uint8_t)((s_hr_next + 1U) % APIE_HR_TRIP_COUNT);
+
+  for (uint8_t i = 0U; i < APIE_HR_TRIP_COUNT; i++)
+  {
+    if ((s_hr_stamps[i] != 0U) && ((now - s_hr_stamps[i]) < APIE_HR_WINDOW_MS))
+    {
+      n++;
+    }
+  }
+
+  if ((n >= APIE_HR_TRIP_COUNT) && (s_hr_tripped == 0U) &&
+      (APIE_Exp_GetLevel() != 0U))
+  {
+    /* The engine was transmitting when the link fell over repeatedly.
+     * Go silent: no autonomous PD transmits until the owner asks for them
+     * again.  Observation (R0) keeps running, so nothing is lost. */
+    s_hr_tripped = 1U;
+    APIE_Exp_SetLevel(0U);
+    APP_LOG_Write("\r\n"
+                  "[apie] HARD-RESET GUARD: ");
+    APP_LOG_Printf("%u hard resets in %u ms while the engine was transmitting.\r\n",
+                   (unsigned)n, (unsigned)APIE_HR_WINDOW_MS);
+    APP_LOG_Write("[apie] Autonomous PD transmits are now OFF (experiment level R0).\r\n"
+                  "[apie] Re-enable deliberately with:  experiment set 1|2\r\n"
+                  "[apie] If resets continue at R0, the cause is not the engine - check\r\n"
+                  "[apie] the CC wiring, the cable, and the source with 'diag pd'.\r\n");
+  }
 }
 
 /* ---------------------------------------------------------------------------

@@ -63,8 +63,19 @@ extern "C" {
 #define APIE_HW_HAS_DPLUS_DMINUS  0U    /* 0 = D+/D- not wired to this connector */
 #define APIE_HW_CABLE_EMARKER     1U    /* SOP'/SOP'' observable over UCPD      */
 
-/* Experiment level defaults (see APIE_ExpLevel_t). */
-#define APIE_EXP_LEVEL_DEFAULT    2U    /* R2: standard power request in limits */
+/* Experiment level defaults (see APIE_ExpLevel_t).
+ *
+ * R0 (observe) is the power-on default.  R1 and above let the engine
+ * TRANSMIT on the PD link by itself - Get_Status / Get_Source_Cap_Ext /
+ * VDM Discover Identity and friends - every ~500 ms whenever a contract
+ * is up.  Plenty of chargers answer an extended or VDM message they do
+ * not implement with a HARD RESET, which turns the engine into a reset
+ * generator: query -> hard reset -> re-attach -> query -> ...
+ *
+ * Observation costs nothing and still profiles the source, so the board
+ * now starts silent.  Turn transmitting on deliberately with
+ * `experiment set 1|2` when you want the probing. */
+#define APIE_EXP_LEVEL_DEFAULT    0U    /* R0: observe only, never transmit */
 #define APIE_EXP_ALLOW_R3         0U    /* state-changing experiments OFF       */
 #define APIE_EXP_ALLOW_R4         0U    /* unknown/vendor transmissions OFF     */
 
@@ -282,6 +293,12 @@ void APIE_Init(void);
 void APIE_Task(void);                 /* super-loop drive                  */
 void APIE_SetSafeMode(uint8_t on);
 uint8_t APIE_IsSafeMode(void);
+
+/** 1 once the hard-reset guard has forced the engine silent. */
+uint8_t APIE_HardResetGuardTripped(void);
+/** Forget the hard-reset history and re-arm the guard. */
+void    APIE_HardResetGuardClear(void);
+
 APIE_State_t APIE_GetState(void);
 uint8_t APIE_GetExperimentLevel(void);
 void APIE_SetExperimentLevel(uint8_t level);
