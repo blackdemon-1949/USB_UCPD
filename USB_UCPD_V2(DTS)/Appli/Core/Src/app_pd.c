@@ -155,7 +155,13 @@ void APP_PD_OnNotify(uint8_t port, USBPD_NotifyEventValue_TypeDef ev)
       s_vbus_restore_at = HAL_GetTick() + 50U;
       s_snk_ready_seen = 0U;   /* report once when the sink is ready again */
       APP_LED_Set(APP_PD_Port[port].Attached ? APP_LED_PD_WAIT : APP_LED_HEARTBEAT);
-      APP_LOG_Write("[PD] hard reset\r\n");
+      /* Say who generated it.  "from source" means the charger is
+         resetting us; "from us" means the PE stack here decided to.
+         Without this the two are indistinguishable on the console and
+         the reset loop cannot be attributed to either side. */
+      APP_LOG_Printf("[PD] hard reset (%s)\r\n",
+                     (ev == USBPD_NOTIFY_HARDRESET_TX)
+                       ? "from us" : "from source");
       break;
     case USBPD_NOTIFY_STATE_SNK_READY:
       /* The PE (re-)enters SNK_READY repeatedly: on attach, after every
