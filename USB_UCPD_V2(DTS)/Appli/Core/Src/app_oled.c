@@ -15,6 +15,7 @@
   */
 
 #include "app_oled.h"
+#include "app_profile.h"
 #include "ssd1306.h"
 #include "oled_font.h"
 #include "app_log.h"
@@ -42,6 +43,11 @@
 #define KEY_CALIBRATE_MS      250U   /* idle-level auto-detect window        */
 
 #define MSG_SHOW_MS          1600U   /* transient message duration           */
+/* If the pin sits at one level untouched for this long, that level is the
+   idle level - re-learn the polarity from it.  Recovers from a boot
+   calibration that guessed wrong (floating pin, button held at power-up)
+   without the owner having to type anything. */
+#define KEY_RELEARN_MS      5000U
 
 /* ---------------------------------------------------------------------------
  *  Vertical budget - the whole point of this table is that no two things are
@@ -102,6 +108,8 @@ static uint8_t   s_cal_mixed;
 
 static uint8_t   s_last_raw;
 static uint8_t   s_stable_raw;
+static uint8_t   s_idle_level;     /* raw level read while untouched */
+static uint16_t  s_click_total;    /* presses ever counted (diagnostics) */
 static uint32_t  s_last_change_ms;
 static uint8_t   s_down;
 static uint8_t   s_clicks;
@@ -620,6 +628,21 @@ static void request_next_fixed(void)
  *  PC13 key
  * ------------------------------------------------------------------------- */
 
+/** What a double press does: the owner profile if there is one, otherwise
+ *  walk the source's SPR fixed PDOs. */
+static void step_request(void)
+{
+  if (APP_PROFILE_Count() != 0U)
+  {
+    if (APP_PROFILE_Next() == 0U)
+    {
+      show_msg("PROFILE FAIL");
+    }
+    return;
+  }
+  request_next_fixed();
+}
+
 static uint8_t key_pressed_raw(void)
 {
   return (HAL_GPIO_ReadPin(APP_KEY_PORT, APP_KEY_PIN) == GPIO_PIN_SET) ? 1U : 0U;
@@ -657,6 +680,8 @@ static void key_finish_calibration(void)
     /* idle level is whatever we sampled; pressed is the other one */
     s_active_high = (s_cal_first == 0U) ? 1U : 0U;
   }
+  s_idle_level   = s_cal_first;
+  s_last_change_ms = HAL_GetTick();
   APP_LOG_Printf("oled: PC13 key is active %s\r\n",
                  s_active_high ? "high" : "low");
 }
@@ -689,6 +714,20 @@ static void key_tick(void)
   if ((int32_t)(now - s_last_change_ms) < (int32_t)KEY_DEBOUNCE_MS) { return; }
   s_stable_raw = raw;
 
+  /* Re-learn the polarity whenever the pin has been quietly at one level for
+     a while.  This is what makes PC13 work even if the start-up calibration
+     saw a floating pin or a button that was already held.  Skipped while a
+     press or a click is in progress, and it self-corrects KEY_RELEARN_MS
+     after the button is released, so a long hold cannot wedge it. */
+  if ((s_down == 0U) && (s_clicks == 0U) && (raw != s_idle_level) &&
+      ((int32_t)(now - s_last_change_ms) >= (int32_t)KEY_RELEARN_MS))
+  {
+    s_idle_level  = raw;
+    s_active_high = (raw == 0U) ? 1U : 0U;
+    APP_LOG_Printf("oled: PC13 idle level re-learned, key is active %s\r\n",
+                   s_active_high ? "high" : "low");
+  }
+
   pressed = (s_active_high != 0U) ? (raw != 0U) : (raw == 0U);
 
   if (pressed && (s_down == 0U))
@@ -700,6 +739,7 @@ static void key_tick(void)
   {
     s_down = 0U;
     s_clicks++;
+    s_click_total++;
     s_last_click_ms = now;
     return;
   }
@@ -709,7 +749,7 @@ static void key_tick(void)
   {
     if (s_clicks >= 2U)
     {
-      request_next_fixed();
+      step_request();
     }
     else
     {
@@ -739,6 +779,8 @@ void APP_OLED_Init(void)
   s_stable_raw    = 0U;
   s_last_change_ms = 0U;
   s_last_click_ms = 0U;
+  s_idle_level    = 2U;   /* impossible -> first poll syncs */
+  s_click_total   = 0U;
 
   SSD1306_Init((uint8_t)OLED_I2C_ADDR);
   key_start_calibration();
@@ -872,5 +914,9 @@ void APP_OLED_Cli(int argc, char *argv[])
                  (unsigned)SSD1306_GetAddr(),
                  (unsigned)s_page, (unsigned)(APP_OLED_PAGES - 1U),
                  s_active_high ? "high" : "low");
+  APP_LOG_Printf("      PC13 now %u (idle %u)  presses seen %u  "
+                 "profile steps %u\r\n",
+                 (unsigned)key_pressed_raw(), (unsigned)s_idle_level,
+                 (unsigned)s_click_total, (unsigned)APP_PROFILE_Count());
   APP_LOG_Write("      usage: oled [on|off | page <n> | addr <hex> | key high|low|auto]\r\n");
 }

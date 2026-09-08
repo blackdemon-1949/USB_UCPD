@@ -32,6 +32,7 @@
 #include "ext_dts.h"
 #include "irq_priority.h"
 #include "app_oled.h"
+#include "app_profile.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -146,6 +147,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   APP_LOG_Init();
   APP_CLI_Init();
+  APP_PROFILE_Init();
   APP_LED_Set(APP_LED_HEARTBEAT);
 
   /* Peripheral extension footprints (see ext_i2c.c / ext_uart.c / ext_dts.c) */
