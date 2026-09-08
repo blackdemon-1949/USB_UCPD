@@ -44,6 +44,29 @@
 /* USER CODE BEGIN Define */
 /* Section where Define can be added */
 
+/* Build-time guard for Fast Role Swap.
+ *
+ * With _FRS defined, the vendor file
+ *   Middlewares/.../Devices/STM32H7RSXX/src/usbpd_hw_if_it.c
+ * compiles in (line ~254) a 150 us *busy-wait* inside the UCPD interrupt
+ * handler:
+ *     USBPD_TIM_Start((TIM_identifier)(2 * PortNum), 150);
+ *     while (USBPD_TIM_IsExpired(...) == 0U) { }
+ * UCPD1 runs at the highest pre-emption priority in this design
+ * (see irq_priority.h).  A 150 us spin there blocks every other interrupt,
+ * including OTG_HS - which is a second, independent way to miss the
+ * enumeration window and produce "device descriptor request failed".
+ *
+ * _FRS is not defined anywhere in this project today, so that code is dead.
+ * This #error keeps it that way: if FRS is ever wanted, the busy-wait must
+ * first be reworked into a state machine that leaves the ISR. */
+#if defined(_FRS)
+#error "_FRS is enabled: usbpd_hw_if_it.c contains a 150 us busy-wait inside \
+the UCPD ISR, which stalls the OTG_HS interrupt and breaks USB enumeration. \
+Rework that wait into a non-blocking state machine before enabling _FRS, \
+then delete this guard."
+#endif
+
 /* USER CODE END Define */
 
 /* Exported typedef ----------------------------------------------------------*/

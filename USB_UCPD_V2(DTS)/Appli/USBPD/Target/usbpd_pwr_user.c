@@ -379,15 +379,15 @@ __weak int32_t BSP_USBPD_PWR_VBUSSetVoltage_Fixed(uint32_t Instance,
   * @param  Instance Type-C port identifier
   *         This parameter can be take one of the following values:
   *         @arg @ref USBPD_PWR_TYPE_C_PORT_1
-  * @param  VbusTargetMinInmv the vbus Target min (in mV)
   * @param  VbusTargetMaxInmv the vbus Target max (in mV)
+  * @param  VbusTargetMinInmv the vbus Target min (in mV)
   * @param  OperatingCurrent the Operating Current (in mA)
   * @param  MaxOperatingCurrent the Max Operating Current (in mA)
   * @retval BSP status
   */
 __weak int32_t BSP_USBPD_PWR_VBUSSetVoltage_Variable(uint32_t Instance,
-                                              uint32_t VbusTargetMinInmv,
                                               uint32_t VbusTargetMaxInmv,
+                                              uint32_t VbusTargetMinInmv,
                                               uint32_t OperatingCurrent,
                                               uint32_t MaxOperatingCurrent)
 {
@@ -494,9 +494,9 @@ __weak int32_t BSP_USBPD_PWR_VBUSGetVoltage(uint32_t Instance, uint32_t *pVoltag
         val = (uint32_t)measured;
       }
     }
+    *pVoltage = val;
     ret = BSP_ERROR_NONE;
   }
-  *pVoltage = val;
   return ret;
   /* USER CODE END BSP_USBPD_PWR_VBUSGetVoltage */
 }

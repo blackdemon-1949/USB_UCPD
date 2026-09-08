@@ -584,6 +584,14 @@ USBPD_StatusTypeDef APP_PD_SendRequest(uint8_t port, uint8_t index, uint16_t mv,
   USBPD_CORE_PDO_Type_TypeDef type;
   USBPD_StatusTypeDef st;
 
+  /* Same bound check the sibling APP_PD_Evaluate() uses: every caller today
+     passes 0 (or the stack's PortNum, which is 0 with USBPD_PORT_COUNT == 1),
+     but APP_PD_Port[] is indexed directly below and this keeps the two entry
+     points consistent. */
+  if (port >= USBPD_PORT_COUNT)
+  {
+    return USBPD_ERROR;
+  }
   if (APP_PD_Port[port].Attached == 0U)
   {
     APP_LOG_Write("not attached\r\n");
@@ -1176,7 +1184,9 @@ void APP_PD_PrintModes(const USBPD_ModeInfo_TypeDef *md, uint8_t ok)
   }
   APP_LOG_Printf("Modes for SVID 0x%04X:\r\n", (unsigned)md->SVID);
   uint32_t i;
-  for (i = 0U; i < md->NumModes && i < 16U; i++)
+  /* USBPD_ModeInfo_TypeDef::Modes is Modes[MAX_MODES_PER_SVID] (6 entries).
+     Clamp to the real array size; a bound larger than the array reads past it. */
+  for (i = 0U; i < md->NumModes && i < (uint32_t)MAX_MODES_PER_SVID; i++)
   {
     APP_LOG_Printf("  mode %lu : 0x%08lX\r\n", (unsigned long)i, (unsigned long)md->Modes[i]);
   }
