@@ -19,7 +19,7 @@
   *
   * Required ordering (hard requirement):
   *
-  *     UCPD  >  CDC (USB OTG_HS)  >  USART1  >  everything else
+  *     UCPD  >  CDC (USB OTG_HS)  >  USART2  >  everything else
   *
   ******************************************************************************
   */
@@ -56,24 +56,29 @@
 #define IRQ_PRIO_CDC_USB             1U
 
 /* ---------------------------------------------------------------------------
-   2 - USART1: the USBPD TRACER_EMB trace port.
+   2 - USART2: the serial console, third overall.
    ---------------------------------------------------------------------------
-   Third, and the highest of the "everything else" group. */
-#define IRQ_PRIO_USART1              2U
+   Next after UCPD and CDC and above every other peripheral.  USART2 is a real
+   console: it carries the CLI that drives the PD bench (req / pps / sweep), so
+   a command typed into it must not be held off by the instrumentation streams
+   below it. */
+#define IRQ_PRIO_CONSOLE             2U
 
 /* ---------------------------------------------------------------------------
-   3 - GPDMA1 channel 2: the DMA that feeds USART1.
+   3 - USART1: the USBPD TRACER_EMB trace port.
+   ---------------------------------------------------------------------------
+   Diagnostic output only - below the consoles, above its own DMA.  A trace
+   burst must never delay a CLI command arriving on USART2 or the CDC port. */
+#define IRQ_PRIO_USART1              3U
+
+/* ---------------------------------------------------------------------------
+   4 - GPDMA1 channel 2: the DMA that feeds USART1.
    ---------------------------------------------------------------------------
    One step below the UART it serves, so a USART1 ISR is never held off by its
    own DMA completion.  NOTE: tracer_emb_hw.c falls back to priority 0 -
    the highest in the system - when TRACER_EMB_TX_DMA_PRIORITY is not defined.
    This macro must stay defined. */
-#define IRQ_PRIO_TRACE_DMA           3U
-
-/* ---------------------------------------------------------------------------
-   4 - USART2: the second (serial) console.
-   --------------------------------------------------------------------------- */
-#define IRQ_PRIO_CONSOLE             4U
+#define IRQ_PRIO_TRACE_DMA           4U
 
 /* ---------------------------------------------------------------------------
    5 - everything else (I2C2 / INA226, DTS, ...).

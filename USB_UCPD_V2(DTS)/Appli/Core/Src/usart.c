@@ -115,9 +115,9 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
    * CubeMX generates 0, which would make the serial console the highest
    * priority interrupt in the system - above UCPD1, the CDC console and
    * USART1.  A paste on the console would then delay PD message handling
-   * and enumeration.  IRQ_PRIO_CONSOLE (4) keeps it below UCPD, CDC and
-   * USART1 as required.  In a USER CODE section so a regeneration does
-   * not drop it. */
+   * and enumeration.  IRQ_PRIO_CONSOLE (2) keeps it below UCPD and CDC, and
+   * above USART1 and everything else as required.  In a USER CODE section so
+   * a regeneration does not drop it. */
   HAL_NVIC_SetPriority(USART2_IRQn, IRQ_PRIO_CONSOLE, 0);
 
   /* PD6 (RX) is generated with GPIO_NOPULL.  With nothing connected the line

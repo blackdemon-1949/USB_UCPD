@@ -87,7 +87,7 @@ extern "C" {
  * IRQ_PRIO_UCPD (0) - the highest priority in the system, no exceptions,
  * because PD negotiation must never be delayed by any other peripheral.
  * The CDC console follows at IRQ_PRIO_CDC_USB (1) and USART1 at
- * IRQ_PRIO_USART1 (2).
+ * IRQ_PRIO_USART1 (3).
  *
  * The CAD layer re-applies this level at run time, so this macro - not
  * MX_UCPD1_Init() - is what the stack actually runs with.  Both are fed from
