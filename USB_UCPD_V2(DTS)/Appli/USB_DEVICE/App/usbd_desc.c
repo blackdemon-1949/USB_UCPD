@@ -392,11 +392,29 @@ static void Get_SerialNum(void)
 
   deviceserial0 += deviceserial2;
 
-  if (deviceserial0 != 0)
+  /* Always fill the descriptor.
+   *
+   * The stock ST version only filled it "if (deviceserial0 != 0)".  When that
+   * test fails the buffer keeps its static initialiser, i.e. bLength=0x1A,
+   * bDescriptorType=0x03 and twelve U+0000 characters.  Windows rejects a
+   * serial number that contains non-printable characters, discards the serial
+   * entirely and falls back to building the device instance ID from the USB
+   * *port path* instead.  The COM port number then depends on enumeration
+   * order and on how many devices Windows has previously seen on that path,
+   * not on the device - which is exactly how one board can come up as a
+   * healthy COM8 on most boots and as a brand-new, broken COM10 on others.
+   *
+   * The 96-bit UID is fixed in ROM, so a zero read should never happen; if it
+   * ever does, substitute a constant so the string is never empty and never
+   * a run of NULs. */
+  if ((deviceserial0 == 0U) && (deviceserial1 == 0U))
   {
-    IntToUnicode(deviceserial0, &USBD_StringSerial[2], 8);
-    IntToUnicode(deviceserial1, &USBD_StringSerial[18], 4);
+    deviceserial0 = 0xFFFFFFFFUL;
+    deviceserial1 = 0xFFFFFFFFUL;
   }
+
+  IntToUnicode(deviceserial0, &USBD_StringSerial[2], 8);
+  IntToUnicode(deviceserial1, &USBD_StringSerial[18], 4);
 }
 
 /**
