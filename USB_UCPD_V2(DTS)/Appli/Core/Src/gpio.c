@@ -49,14 +49,26 @@ void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(Built_IN_LED_GPIO_Port, Built_IN_LED_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : User_Button_Pin
-    PC13 user key: active low with an EXTERNAL 10 k pull-up on the board.
-    The .ioc says PULLDOWN; the internal pull-down fights the external
-    pull-up and the key never reads low.  GPIO_NOPULL is the working
-    hand-edit (carried over from the previous firmware revision) - if you
-    regenerate from CubeMX, re-apply it. */
+    PC13 user key, per the WeAct STM32H7R3Zx CoreBoard V1.0 schematic:
+
+        3V3 --- button --- 330 R --- PC13
+
+    There is NO resistor from PC13 to either rail.  Pressed, the pin is
+    driven HIGH through 330 R.  Released, it is completely FLOATING - it
+    does not fall to 0 V, it leaks down through the pin's own leakage
+    current over an unpredictable time.  That is why the key "sort of
+    worked but the timing was trash": the release edge arrived tens or
+    hundreds of milliseconds late and at random, so the debounce either
+    swallowed the press or reported two.
+
+    GPIO_PULLDOWN is therefore REQUIRED, not cosmetic.  The internal
+    ~40 k pull-down gives the pin a definite LOW when the button is open,
+    and 330 R to 3V3 still wins easily against it when the button closes.
+    (This is what the .ioc originally generated; do not "fix" it back to
+    GPIO_NOPULL - with NOPULL the pin floats and the key misbehaves.) */
   GPIO_InitStruct.Pin = User_Button_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(User_Button_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : Built_IN_LED_Pin */

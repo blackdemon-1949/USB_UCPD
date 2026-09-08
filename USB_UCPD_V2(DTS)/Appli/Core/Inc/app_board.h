@@ -11,7 +11,10 @@ extern "C" {
 #define APP_LED_PIN           GPIO_PIN_2
 #define APP_KEY_PORT          GPIOC
 #define APP_KEY_PIN           GPIO_PIN_13
-#define APP_KEY_PRESSED()     (HAL_GPIO_ReadPin(APP_KEY_PORT, APP_KEY_PIN) == GPIO_PIN_RESET)
+/* Active HIGH: the schematic is 3V3 - button - 330R - PC13 (see gpio.c).
+   Nothing in the firmware uses this macro; the OLED key state machine in
+   app_oled.c does its own sampling. */
+#define APP_KEY_PRESSED()     (HAL_GPIO_ReadPin(APP_KEY_PORT, APP_KEY_PIN) == GPIO_PIN_SET)
 
 typedef enum
 {
