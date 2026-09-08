@@ -31,6 +31,7 @@
 #include "ext_uart.h"
 #include "ext_dts.h"
 #include "irq_priority.h"
+#include "app_oled.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -152,6 +153,12 @@ int main(void)
   EXT_UART_Init();
   EXT_DTS_Init();
 
+  /* 0.96" 128x64 I2C OLED page on I2C2, shared with the INA226.
+   * Additive and self-disabling: if nothing answers at 0x3C every entry
+   * point becomes a no-op and the rest of the firmware never notices.
+   * Must run after EXT_I2C_Init() so I2C2 is already configured. */
+  APP_OLED_Init();
+
   MX_USB_DEVICE_Init();
 
   /* Advanced PD Intelligence Engine (observation + learning + policy). */
@@ -174,6 +181,9 @@ int main(void)
     EXT_I2C_Poll();
     EXT_UART_Poll();
     EXT_DTS_Poll();
+
+    /* OLED page: pushes at most one I2C chunk per pass and returns. */
+    APP_OLED_Poll();
 
     /* USER CODE BEGIN 3 */
     APP_CLI_Poll();
