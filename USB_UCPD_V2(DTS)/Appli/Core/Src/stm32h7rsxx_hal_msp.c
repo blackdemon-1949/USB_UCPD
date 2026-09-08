@@ -68,12 +68,20 @@ void HAL_MspInit(void)
 
   /* System interrupt init*/
 
-  /* Enable USB Voltage detector */
-  if(HAL_PWREx_EnableUSBVoltageDetector() != HAL_OK)
-  {
-   /* Initialization error */
-   Error_Handler();
-  }
+  /* Enable USB Voltage detector.
+   *
+   * The return value is deliberately not turned into an Error_Handler() trap.
+   * VDD33USB not coming up (PWR_CSR2_USB33RDY) means the USB HS PHY has no
+   * supply, so the CDC console is lost - but the PD sink, the USART2 console
+   * and the CLI are all unaffected, and Error_Handler() never returns, so it
+   * would take those down as well over a USB problem.
+   *
+   * usbd_conf.c calls this again in HAL_PCD_MspInit(), checks the result, and
+   * gates the D+ pull-up on it (s_usb_clock_ok -> USBD_LL_Init fails).  So a
+   * dead VDD33USB now costs the USB console only, and the device simply never
+   * appears to the host rather than appearing attached but unable to answer
+   * GET_DESCRIPTOR ("device descriptor request failed" / Code 10). */
+  (void)HAL_PWREx_EnableUSBVoltageDetector();
 
   HAL_PWREx_EnableUSBHSregulator();
 

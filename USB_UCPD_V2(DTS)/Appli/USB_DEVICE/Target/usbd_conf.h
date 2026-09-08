@@ -157,6 +157,10 @@
 void *USBD_static_malloc(uint32_t size);
 void USBD_static_free(void *p);
 
+/* USB clock / PHY readiness gate (see HAL_PCD_MspInit in usbd_conf.c).
+   1 = USBPHYC mux and VDD33USB detector verified; 0 = USB was not started. */
+uint8_t USBD_LL_UsbClockReady(void);
+
 /**
   * @}
   */

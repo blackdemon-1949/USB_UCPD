@@ -13,6 +13,7 @@
 #include "ext_uart.h"
 #include "ext_dts.h"
 #include "dtsmon.h"
+#include "usbd_conf.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -85,7 +86,7 @@ void APP_CLI_OnRx(const uint8_t *data, uint32_t len)
     uint32_t primask;
 
     /* Two producers run in interrupt context at different priorities:
-     * OTG_HS (4) for the CDC port and USART2 (7) for the serial console.
+     * OTG_HS (1) for the CDC port and USART2 (2) for the serial console.
      * Without this guard the higher-priority one can preempt the other
      * between the read and the write of s_rx_head and corrupt the ring.
      * The critical section is a handful of instructions per byte, so it
@@ -701,6 +702,40 @@ static int apie_cli_dispatch(int argc, char *argv[])
   return -1;
 }
 
+/* --------------------------------------------------------------------------
+ *  USB / PHY clock read-back (part of `info`).
+ *
+ *  Static analysis can prove the clock *configuration* is right but not that
+ *  the USBPHYC has produced a valid 48 MHz on this particular board.  This
+ *  dumps the two RCC fields that decide it, the frequency the HAL computes
+ *  from them, and the two PWR bits that power the PHY, so a single `info`
+ *  on the bench settles it.
+ * ------------------------------------------------------------------------- */
+static void print_usb_clocks(void)
+{
+  uint32_t ccipr1   = RCC->CCIPR1;
+  uint32_t phycsel  = (ccipr1 & RCC_CCIPR1_USBPHYCSEL)  >> RCC_CCIPR1_USBPHYCSEL_Pos;
+  uint32_t refsel   = (ccipr1 & RCC_CCIPR1_USBREFCKSEL) >> RCC_CCIPR1_USBREFCKSEL_Pos;
+
+  APP_LOG_Printf("usb clk: usbphyc_ker_ck = %lu Hz (want 24000000)\r\n",
+                 (unsigned long)HAL_RCCEx_GetPeriphCLKFreq(RCC_PERIPHCLK_USBPHYC));
+  APP_LOG_Printf("  CCIPR1.USBPHYCSEL  = %lu   (0=HSE  1=HSE/2  2=PLL3Q)\r\n",
+                 (unsigned long)phycsel);
+  APP_LOG_Printf("  CCIPR1.USBREFCKSEL = 0x%lX (0xA = 24 MHz ref -> x2 = 48 MHz)\r\n",
+                 (unsigned long)refsel);
+  APP_LOG_Printf("  HSE = %lu Hz   PWR.CSR2 USB33RDY=%lu USBHSREGEN=%lu\r\n",
+                 (unsigned long)HSE_VALUE,
+                 (unsigned long)((PWR->CSR2 & PWR_CSR2_USB33RDY) != 0U),
+                 (unsigned long)((PWR->CSR2 & PWR_CSR2_USBHSREGEN) != 0U));
+
+  /* 1 = the readiness gate in HAL_PCD_MspInit passed, so USBD_LL_Init let the
+     device start and the pull-up was asserted.  0 = USB deliberately did not
+     start because the PHY clock mux or VDD33USB was not verified - the device
+     then never appears to the host at all, instead of appearing broken. */
+  APP_LOG_Printf("  usb clock gate = %lu (0 => USB was not started)\r\n",
+                 (unsigned long)USBD_LL_UsbClockReady());
+}
+
 static void handle_line(char *line)
 {
   char *argv[6];
@@ -739,6 +774,7 @@ static void handle_line(char *line)
   else if (strcmp(argv[0], "info") == 0)
   {
     APP_BOARD_PrintInfo();
+    print_usb_clocks();
   }
   else if (strcmp(argv[0], "pd") == 0)
   {

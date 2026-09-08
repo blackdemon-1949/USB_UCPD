@@ -37,6 +37,19 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+
+/* 1 = the USB PHYC clock mux and the VDD33USB voltage detector are confirmed
+ *     programmed and read back correctly (see HAL_PCD_MspInit).
+ * 0 = at least one of them failed or did not take effect.  In that state the
+ *     PHY has no valid 48 MHz, so USBD_LL_Init() refuses to hand the core to
+ *     the stack and the D+ pull-up is never asserted.  Windows seeing a device
+ *     that is attached but answers GET_DESCRIPTOR with garbage is exactly how
+ *     "device descriptor request failed" / Code 10 is produced, and it used to
+ *     be produced by an *unconditional* connect here.
+ *
+ *     Reported by USBD_LL_UsbClockReady() and printed by the `info` command. */
+static uint8_t s_usb_clock_ok = 1U;
+
 /* USER CODE END PV */
 
 PCD_HandleTypeDef hpcd_USB_OTG_HS;
@@ -71,17 +84,27 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
   /* USER CODE BEGIN USB_OTG_HS_MspInit 0 */
     /* USB PHY reference clock selection.
      *
-     * CubeMX has a templating bug on STM32H7RS: the ".ioc" setting
-     *   USB_OTG_HS.RefClockSelection = SYSCFG_OTG_HS_PHY_CLK_SELECT_4
-     * is NEVER emitted into the generated code (confirmed with the MCU
-     * support team on the ST community, "STM32H7RS USB_HS failure -
-     * Device Descriptor Request Failed").  RCC_CCIPR1.USBREFCKSEL is left
-     * at its reset value, so the USBPHY does not get a valid 24 MHz
-     * reference from the 24 MHz HSE.  Symptom: the CDC device enumerates
-     * only after several tries / looks "corrupt" in the Windows device
-     * manager, or the enum speed decodes as garbage.
+     * NOTE (correction to an earlier note in this file): the old comment
+     * blamed "SYSCFG_OTG_HS_PHY_CLK_SELECT_4".  There is no such thing on
+     * STM32H7RS - this family has no SYSCFG USB-PHY clock mux at all (no
+     * SYSCFG->OTG_HS_PHY_CTRL).  The USB HS PHY is fed from exactly two
+     * fields of RCC->CCIPR1:
      *
-     * Fix: select the 24 MHz reference explicitly (HSE = 24 MHz here). */
+     *   USBPHYCSEL  - which clock drives the PHY.  Here: HSE (0), 24 MHz.
+     *   USBREFCKSEL - a 4-bit code telling the PHY what reference frequency
+     *                 to expect, so it can generate 48 MHz from it.
+     *                 24 MHz is LL_RCC_USBREF_CLKSOURCE_24M ==
+     *                 (RCC_CCIPR1_USBREFCKSEL_3 | RCC_CCIPR1_USBREFCKSEL_1) ==
+     *                 0xA.  (See Drivers/.../Inc/stm32h7rsxx_ll_rcc.h.)
+     *
+     * CubeMX does not emit USB_OTG_HS.RefClockSelection for STM32H7RS, so
+     * USBREFCKSEL stayed at its reset value and the PHY produced no valid
+     * 48 MHz; enumeration then failed or decoded as garbage.  Set it
+     * explicitly here, and read both fields back below.
+     *
+     * Powering the PHY additionally needs PWR->CSR2.USBHSREGEN (VDD33USB
+     * regulator, enabled in HAL_MspInit) and USB33DEN (voltage detector,
+     * enabled both there and below). */
     LL_RCC_SetUSBREFClockSource(LL_RCC_USBREF_CLKSOURCE_24M);
   /* USER CODE END USB_OTG_HS_MspInit 0 */
 
@@ -91,16 +114,37 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
     PeriphClkInit.UsbPhycClockSelection = RCC_USBPHYCCLKSOURCE_HSE;
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
     {
-      Error_Handler();
+      /* Do NOT call Error_Handler() here: it never returns and would brick
+         the whole PD bench over a USB clock problem, and continuing into
+         HAL_PCD_Init() would touch an unclocked USB_OTG_HS.  Record the
+         failure; USBD_LL_Init() checks it before going any further. */
+      s_usb_clock_ok = 0U;
+      return;
     }
 
   /** Enable USB Voltage detector
   */
-    HAL_PWREx_EnableUSBVoltageDetector();
+    if (HAL_PWREx_EnableUSBVoltageDetector() != HAL_OK)
+    {
+      /* Same reasoning: no Error_Handler(), and no connect without VDD33USB
+         being reported ready (PWR_CSR2_USB33RDY). */
+      s_usb_clock_ok = 0U;
+      return;
+    }
 
     /* Peripheral clock enable */
     __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
     __HAL_RCC_USBPHYC_CLK_ENABLE();
+
+    /* Read both muxes back.  If either is not what we just programmed, the
+       PHY has no valid 48 MHz and the device must not be allowed to assert
+       the D+ pull-up.  (This is also the read-back a bench test can use:
+       `info` prints the same two fields.) */
+    if ((LL_RCC_GetUSBREFClockSource(LL_RCC_USBREF_CLKSOURCE) != LL_RCC_USBREF_CLKSOURCE_24M) ||
+        (__HAL_RCC_GET_USBPHYC_SOURCE() != RCC_USBPHYCCLKSOURCE_HSE))
+    {
+      s_usb_clock_ok = 0U;
+    }
 
     /* Peripheral interrupt init */
     /* CDC (USB OTG_HS) is second only to UCPD: enumeration and the control
@@ -452,6 +496,18 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
     return USBD_FAIL;
   }
 
+  /* Clock / PHY readiness gate (set in HAL_PCD_MspInit).  HAL_PCD_MspInit
+     runs inside HAL_PCD_Init(), so it can be evaluated now.  If the USBPHYC
+     mux or the VDD33USB detector did not come up, do not program the FIFOs
+     and do not let USBD_Start() assert the D+ pull-up: a device that is
+     attached but cannot answer GET_DESCRIPTOR is precisely what Windows
+     reports as "device descriptor request failed" / Code 10, and it is the
+     failure mode that a half-initialised PHY produces. */
+  if (s_usb_clock_ok == 0U)
+  {
+    return USBD_FAIL;
+  }
+
 #if (USE_HAL_PCD_REGISTER_CALLBACKS == 1U)
   /* Register USB PCD CallBacks */
   HAL_PCD_RegisterCallback(&hpcd_USB_OTG_HS, HAL_PCD_SOF_CB_ID, PCD_SOFCallback);
@@ -471,9 +527,35 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
   HAL_PCDEx_SetRxFiFo(&hpcd_USB_OTG_HS, 0x200);
   HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 0, 0x40);
   HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 1, 0x80);
+
+  /* TX FIFO 2 serves IN endpoint 2, which the CDC class opens as its
+   * command / notification endpoint (CDC_CMD_EP == 0x82, opened in
+   * usbd_cdc.c USBD_CDC_Init).  Without this call DIEPTXF[1] keeps its reset
+   * value 0, i.e. depth 0 at FIFO offset 0 - which *aliases the RX FIFO*
+   * (the RX FIFO occupies words 0..0x200).  Any activity on the notification
+   * endpoint then reads and writes receive-buffer RAM, corrupting whatever
+   * the host last sent.  The HAL states the rule explicitly in
+   * HAL_PCDEx_SetTxFiFo(): an unused TX FIFO must still be given the 16-word
+   * minimum so the following FIFO starts at the right address.
+   *
+   * Budget: 0x200 + 0x40 + 0x80 + 0x40 = 0x300 words = 3072 of the 4096
+   * bytes of OTG_HS FIFO RAM. */
+  HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_HS, 2, 0x40);
   /* USER CODE END USB_HS_FIFO_Configuration */
   }
   return USBD_OK;
+}
+
+/**
+  * @brief  Report whether the USB clock / PHY readiness gate passed.
+  * @param  None
+  * @retval 1 = USBPHYC mux and VDD33USB detector verified, 0 = not.
+  * @note   Read by the `info` command.  When this returns 0, USBD_LL_Init()
+  *         refused to start the device, so no pull-up was ever asserted.
+  */
+uint8_t USBD_LL_UsbClockReady(void)
+{
+  return s_usb_clock_ok;
 }
 
 /**
