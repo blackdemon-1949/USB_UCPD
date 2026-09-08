@@ -103,6 +103,7 @@
   */
 
 static void Get_SerialNum(void);
+void USBD_CDC_BuildSerialNum(void);
 static void IntToUnicode(uint32_t value, uint8_t * pbuf, uint8_t len);
 
 /**
@@ -228,6 +229,7 @@ __ALIGN_BEGIN uint8_t USBD_StrDesc[USBD_MAX_STR_DESC_SIZ] __ALIGN_END;
 #if defined ( __ICCARM__ ) /*!< IAR Compiler */
   #pragma data_alignment=4
 #endif
+static uint8_t s_serial_built;
 __ALIGN_BEGIN uint8_t USBD_StringSerial[USB_SIZ_STRING_SERIAL] __ALIGN_END = {
   USB_SIZ_STRING_SERIAL,
   USB_DESC_TYPE_STRING,
@@ -305,13 +307,33 @@ uint8_t * USBD_CDC_SerialStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *length
   *length = USB_SIZ_STRING_SERIAL;
 
   /* Update the serial number string descriptor with the data from the unique
-   * ID */
-  Get_SerialNum();
+   * ID.  Built at most once (see USBD_CDC_BuildSerialNum); MX_USB_DEVICE_Init
+   * calls it before the pull-up is asserted, so a host that asks for the
+   * serial the instant it sees the device cannot catch a half-built buffer. */
+  USBD_CDC_BuildSerialNum();
   /* USER CODE BEGIN USBD_CDC_SerialStrDescriptor */
 
   /* USER CODE END USBD_CDC_SerialStrDescriptor */
 
   return (uint8_t *) USBD_StringSerial;
+}
+
+/**
+  * @brief  Build the serial number string descriptor from the device UID.
+  * @param  None
+  * @retval None
+  * @note   Call this once, before USBD_Start() asserts the D+ pull-up, so
+  *         the descriptor is byte-identical on every reset path (power-on,
+  *         watchdog, NVIC_SystemReset and the warm bootloader -> Appli jump).
+  *         It is idempotent: repeat calls do nothing.
+  */
+void USBD_CDC_BuildSerialNum(void)
+{
+  if (s_serial_built == 0U)
+  {
+    Get_SerialNum();
+    s_serial_built = 1U;
+  }
 }
 
 /**

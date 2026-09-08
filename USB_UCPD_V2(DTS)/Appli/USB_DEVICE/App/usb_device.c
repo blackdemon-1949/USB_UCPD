@@ -66,6 +66,14 @@ void MX_USB_DEVICE_Init(void)
 {
   /* USER CODE BEGIN USB_DEVICE_Init_PreTreatment */
 
+  /* Build the serial-number string descriptor now, before USBD_Start()
+     asserts the D+ pull-up.  It is derived from the 96-bit device UID, so it
+     is the same on every reset path; building it up front means a host that
+     asks for the serial the instant the device appears can never catch a
+     buffer that has not been filled yet.  Windows keys the COM port number
+     (COM8 / COM10 / ...) off VID+PID+serial, so this must be stable. */
+  USBD_CDC_BuildSerialNum();
+
   /* USER CODE END USB_DEVICE_Init_PreTreatment */
 
   /* Init Device Library, add supported class and start the library.

@@ -40,5 +40,7 @@
 
 extern USBD_DescriptorsTypeDef CDC_Desc;
 
+void USBD_CDC_BuildSerialNum(void);
+
 #endif /* __USBD_DESC_H */
 
