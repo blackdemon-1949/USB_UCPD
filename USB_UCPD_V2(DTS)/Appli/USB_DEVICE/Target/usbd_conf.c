@@ -445,7 +445,11 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
   hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
   if (HAL_PCD_Init(&hpcd_USB_OTG_HS) != HAL_OK)
   {
-    Error_Handler();
+    /* Do NOT call Error_Handler() here: it never returns (LED code 7) and
+       would brick the whole PD bench over a USB problem.  USBD_Init()
+       propagates this to MX_USB_DEVICE_Init(), which logs the failure and
+       keeps the sink running without the serial console. */
+    return USBD_FAIL;
   }
 
 #if (USE_HAL_PCD_REGISTER_CALLBACKS == 1U)
