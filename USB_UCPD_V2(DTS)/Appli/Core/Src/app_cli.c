@@ -14,6 +14,7 @@
 #include "ext_dts.h"
 #include "dtsmon.h"
 #include "app_oled.h"
+#include "app_profile.h"
 #include "usbd_conf.h"
 #include <string.h>
 #include <stdlib.h>
@@ -178,6 +179,17 @@ void APP_CLI_PrintHelp(void)
     "  oled key high|low|auto PC13 polarity (auto = detect idle level at boot)\r\n"
     "  PC13: one press = next page, two presses = request next SPR fixed PDO\r\n"
     "\r\n"
+    "  -- voltage profiles (what PC13 steps through) --\r\n"
+    "  profile                 list the steps\r\n"
+    "  profile add fixed <pdo> [ma]   step to a fixed supply PDO (1..7)\r\n"
+    "  profile add pps <mv> [ma]      step to an exact PPS voltage\r\n"
+    "  profile del <n> | clear        delete one step / all steps\r\n"
+    "  profile apply <n> | next       apply a step now / the next one\r\n"
+    "  profile pos [n]                show or set the position\r\n"
+    "  profile save | load            NOT available: app runs in place (XiP),\r\n"
+    "                                 no spare flash sector, no backup RAM\r\n"
+    "  With an empty profile, PC13 double press steps the source fixed PDOs.\r\n"
+    "\r\n"
     "  -- Advanced PD Intelligence Engine (APIE) --\r\n"
     "  Every command below works either BARE or with an \"ap\" prefix: \"stats\"\r\n"
     "  and \"ap stats\" run the same code.  The one exception is bare \"status\",\r\n"
@@ -193,7 +205,8 @@ void APP_CLI_PrintHelp(void)
     "  safe | safe-mode on|off disable/enable intelligence (sink stays up)\r\n"
     "  pd stats|packets [all]|state   PD PHY/PE counters + raw ring\r\n"
     "  raw [clear|dump [all]|stats|export]      raw packet ring\r\n"
-    "  source|profile|profiles source profile (\"fingerprint\" = signature only)\r\n"
+    "  source|profiles         source profile (what the engine has learned)\r\n"
+    "  fingerprint             short form: just the source signature\r\n"
     "  txn | transactions      transactions; add active|history to transactions\r\n"
     "  feature | features      feature vector\r\n"
     "  unknown|patterns|hypotheses   unrecognised / recurring behaviour\r\n"
@@ -201,6 +214,14 @@ void APP_CLI_PrintHelp(void)
     "  predict <query>         classify a query as useful or not\r\n"
     "  scheduler               adaptive query scheduler state\r\n"
     "  experiment [set <0-4>]  show or set the experiment level\r\n"
+    "      R0 observe      default at power-on, the board NEVER transmits\r\n"
+    "      R1 info-query   engine starts sending Get_Status / Get_Src_Cap_Ext /\r\n"
+    "                      VDM Discover by itself, about every 500 ms\r\n"
+    "      R2 power-req    as R1, plus power requests within the safe limits\r\n"
+    "      R3/R4           compiled OFF on this board, cannot be enabled\r\n"
+    "      Many chargers answer a message they do not implement with a HARD\r\n"
+    "      RESET, so R1/R2 can make the source reset continuously.  A guard\r\n"
+    "      drops back to R0 by itself after 3 hard resets in 10 s.\r\n"
     "  db [dump|status|validate|compact|test|wear|writes|erases|checkpoint]\r\n"
     "  safety [status|limits]  safety limits + hardware capability flags\r\n"
     "  diag <scope>            scope: pd|rx|tx|txn|decoder|profile|unknown|\r\n"
@@ -447,8 +468,8 @@ static int apie_cli_dispatch(int argc, char *argv[])
     APP_LOG_Write("raw: usage raw [clear|dump|stats|export]\r\n");
     return 0;
   }
-  if (strcmp(argv[0], "source") == 0 || strcmp(argv[0], "profile") == 0 ||
-      strcmp(argv[0], "profiles") == 0 || strcmp(argv[0], "fingerprint") == 0)
+  if (strcmp(argv[0], "source") == 0 || strcmp(argv[0], "profiles") == 0 ||
+      strcmp(argv[0], "fingerprint") == 0)
   {
     if (strcmp(argv[0], "fingerprint") == 0)
     {
@@ -772,6 +793,10 @@ static void handle_line(char *line)
   else if (strcmp(argv[0], "oled") == 0)
   {
     APP_OLED_Cli(argc, argv);
+  }
+  else if (strcmp(argv[0], "profile") == 0)
+  {
+    APP_PROFILE_Cli(argc, argv);
   }
   else if (strcmp(argv[0], "pd") == 0)
   {
