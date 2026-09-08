@@ -486,6 +486,22 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
   hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE;
   hpcd_USB_OTG_HS.Init.lpm_enable = DISABLE;
   hpcd_USB_OTG_HS.Init.use_dedicated_ep1 = DISABLE;
+
+  /* VBUS sensing stays DISABLED on purpose - do not "fix" this to ENABLE.
+   *
+   * The board has no VBUS-sense pin wired to the OTG controller.  Enabling
+   * vbus_sensing_enable would make the core gate its session state on
+   * GCCFG.VBUSBSEN / VBUSASEN reading a pin that is not connected, so the
+   * behaviour would be undefined (a floating or grounded input reads as
+   * "no VBUS", and the device can then fail to connect at all).
+   *
+   * The consequence - the device asserts the D+ pull-up whether or not VBUS
+   * is there - is acceptable here, because the board is either powered from
+   * VBUS itself (in which case VBUS is de facto present whenever the firmware
+   * is running) or powered externally with the USB cable attached.  Supply
+   * readiness is checked through PWR_CSR2.USB33RDY instead: see the
+   * s_usb_clock_ok gate in HAL_PCD_MspInit() / USBD_LL_Init() /
+   * USBD_LL_Start(). */
   hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
   if (HAL_PCD_Init(&hpcd_USB_OTG_HS) != HAL_OK)
   {
@@ -584,6 +600,30 @@ USBD_StatusTypeDef USBD_LL_Start(USBD_HandleTypeDef *pdev)
 {
   HAL_StatusTypeDef hal_status = HAL_OK;
   USBD_StatusTypeDef usb_status = USBD_OK;
+
+  /* Final barrier before HAL_PCD_Start() clears DCTL.SFTDISCON and asserts
+     the D+ pull-up, checked as late as it is possible to check it.
+     *
+     * The board can be powered from VBUS, so on a cold plug the whole 3.3 V
+     * domain - including the USB HS supply - is still ramping while the CPU is
+     * already executing: the MCU comes out of reset as soon as VDD crosses the
+     * POR threshold, which is well before VDD33USB is stable.  Connecting
+     * during that window is how an attached-but-incapable device (and hence
+     * "device descriptor request failed" / Code 10, or a fresh broken COM
+     * port) is produced.  PWR_CSR2.USB33RDY is the only supply-ready signal
+     * available without a VBUS-sense pin: it is driven by the USB 3.3 V
+     * detector and only asserts once that domain is up.  On a warm reset the
+     * domain is already charged and USB33RDY is already set, which is why the
+     * fault clears itself on the next reset.
+     *
+     * Refusing to start keeps the PD sink and the USART2 console alive; the
+     * failure is logged by MX_USB_DEVICE_Init() and reported by `info`
+     * (usb clock gate = 0). */
+  if ((s_usb_clock_ok == 0U) || ((PWR->CSR2 & PWR_CSR2_USB33RDY) == 0U))
+  {
+    s_usb_clock_ok = 0U;
+    return USBD_FAIL;
+  }
 
   hal_status = HAL_PCD_Start(pdev->pData);
 
