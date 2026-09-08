@@ -27,6 +27,9 @@
 #ifndef __TRACER_EMB_CONF_H
 #define __TRACER_EMB_CONF_H
 
+/* Central NVIC pre-emption priority map (IRQ_PRIO_USART1, ...). */
+#include "irq_priority.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -75,9 +78,17 @@ extern "C" {
 #define TRACER_EMB_SET_CLK_SOURCE_USART()            /* USART1 kernel clock defaults to pclk2 (150 MHz) */
 #define TRACER_EMB_USART_IRQ                         USART1_IRQn
 #define TRACER_EMB_USART_IRQHANDLER                  USART1_IRQHandler
-/* USART1 trace IRQ priority.  6 = just below USB OTG (4) and UCPD (5):
- * tracing must never delay USB enumeration or PD message handling. */
-#define TRACER_EMB_TX_IRQ_PRIORITY                   6
+/* USART1 trace IRQ priority, and the priority of the GPDMA1 channel 2 that
+ * feeds it.  Both come from irq_priority.h: USART1 is third in the system
+ * (after UCPD and the CDC console) and its DMA sits one step below the UART
+ * it serves.
+ *
+ * TRACER_EMB_TX_DMA_PRIORITY MUST STAY DEFINED.  tracer_emb_hw.c falls back
+ * to NVIC_SetPriority(TRACER_EMB_TX_DMA_IRQ, 0) when it is absent, and 0 is
+ * the highest pre-emption priority in the system: the PD trace DMA would then
+ * outrank UCPD1 and USB OTG_HS and could starve both. */
+#define TRACER_EMB_TX_IRQ_PRIORITY                   IRQ_PRIO_USART1
+#define TRACER_EMB_TX_DMA_PRIORITY                   IRQ_PRIO_TRACE_DMA
 
 #define TRACER_EMB_TX_AF_FUNCTION                    LL_GPIO_SetAFPin_8_15
 #define TRACER_EMB_RX_AF_FUNCTION                    LL_GPIO_SetAFPin_8_15

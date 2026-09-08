@@ -30,6 +30,7 @@
 #include "ext_i2c.h"
 #include "ext_uart.h"
 #include "ext_dts.h"
+#include "irq_priority.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -122,6 +123,11 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+  /* Restate the NVIC grouping instead of relying on the HAL_Init()
+     default, so the levels in irq_priority.h really are the effective
+     pre-emption priorities.  Must run before any peripheral enables an
+     interrupt. */
+  HAL_NVIC_SetPriorityGrouping(IRQ_PRIORITY_GROUP);
 
   /* USER CODE END Init */
 

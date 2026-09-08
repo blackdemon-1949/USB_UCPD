@@ -28,6 +28,7 @@
 /* USER CODE BEGIN Includes */
 #include "stm32h7rsxx_ll_rcc.h"
 #include "app_log.h"
+#include "irq_priority.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -102,10 +103,11 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
     __HAL_RCC_USBPHYC_CLK_ENABLE();
 
     /* Peripheral interrupt init */
-    /* USB OTG must outrank UCPD1 (priority 5): enumeration is timing
-       critical and must not be starved by UCPD/PRL interrupt bursts while
-       a PD source negotiates at the same time the cable is plugged. */
-    HAL_NVIC_SetPriority(OTG_HS_IRQn, 4, 0);
+    /* CDC (USB OTG_HS) is second only to UCPD: enumeration and the control
+       endpoint are timing critical, and a late GET_DESCRIPTOR response is
+       exactly what Windows reports as "device descriptor request failed" /
+       Code 10.  The level comes from irq_priority.h (IRQ_PRIO_CDC_USB). */
+    HAL_NVIC_SetPriority(OTG_HS_IRQn, IRQ_PRIO_CDC_USB, 0);
     HAL_NVIC_EnableIRQ(OTG_HS_IRQn);
   /* USER CODE BEGIN USB_OTG_HS_MspInit 1 */
 

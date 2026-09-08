@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "ucpd.h"
+#include "irq_priority.h"
 
 /* USER CODE BEGIN 0 */
 
@@ -105,11 +106,13 @@ void MX_UCPD1_Init(void)
   LL_DMA_Init(GPDMA1, LL_DMA_CHANNEL_0, &DMA_InitStruct);
 
   /* UCPD1 interrupt Init
-   * Priority 5: below USB OTG_HS (4) so USB enumeration cannot be starved
-   * by PD bursts, above SysTick (15) so the PRL keeps its timing.  The CAD
-   * layer re-applies this via UCPD_INSTANCE0_ENABLEIRQ
-   * (usbpd_devices_conf.h); keep the two in sync. */
-  NVIC_SetPriority(UCPD1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),5, 0));
+   * IRQ_PRIO_UCPD (0) - the highest priority in the system, no exceptions.
+   * PD negotiation is the most timing-sensitive stream on the board: a
+   * delayed UCPD interrupt loses a GoodCRC and collapses the contract, so
+   * UCPD outranks the CDC console and USART1.  The CAD layer re-applies the
+   * same level via UCPD_INSTANCE0_ENABLEIRQ (usbpd_devices_conf.h); keep the
+   * two in sync. */
+  NVIC_SetPriority(UCPD1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),IRQ_PRIO_UCPD, 0));
   NVIC_EnableIRQ(UCPD1_IRQn);
 
   /* USER CODE BEGIN UCPD1_Init 1 */

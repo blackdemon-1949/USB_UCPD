@@ -37,6 +37,8 @@ extern "C" {
 #include "usbpd_pwr_if.h"
 
 /* USER CODE BEGIN Includes */
+/* Central NVIC pre-emption priority map (IRQ_PRIO_UCPD, ...). */
+#include "irq_priority.h"
 
 /* USER CODE END Includes */
 
@@ -82,14 +84,16 @@ extern "C" {
 #define UCPDFRS_INSTANCE0_FRSCC2
 
 /* UCPD1 interrupt priority.
- * The ST default of 0 makes the UCPD ISR the highest priority task in the
- * system.  While a PD negotiation runs at the same time the USB cable is
- * plugged in, UCPD/PRL interrupt bursts then starve the OTG_HS interrupt
- * (enumeration is timing critical -> "corrupt" CDC in the device manager)
- * and the SysTick-driven CAD/PE software timers.  USB keeps priority 4,
- * UCPD and its DMA channels get 5: both stacks stay responsive. */
+ * IRQ_PRIO_UCPD (0) - the highest priority in the system, no exceptions,
+ * because PD negotiation must never be delayed by any other peripheral.
+ * The CDC console follows at IRQ_PRIO_CDC_USB (1) and USART1 at
+ * IRQ_PRIO_USART1 (2).
+ *
+ * The CAD layer re-applies this level at run time, so this macro - not
+ * MX_UCPD1_Init() - is what the stack actually runs with.  Both are fed from
+ * irq_priority.h so they cannot drift apart. */
 #define UCPD_INSTANCE0_ENABLEIRQ  do{                                                                 \
-                                        NVIC_SetPriority(UCPD1_IRQn,5);                              \
+                                        NVIC_SetPriority(UCPD1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),IRQ_PRIO_UCPD, 0));                              \
                                         NVIC_EnableIRQ(UCPD1_IRQn);                                  \
                                     } while(0)
 
