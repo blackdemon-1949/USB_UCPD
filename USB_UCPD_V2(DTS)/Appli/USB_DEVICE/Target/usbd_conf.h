@@ -161,6 +161,11 @@ void USBD_static_free(void *p);
    1 = USBPHYC mux and VDD33USB detector verified; 0 = USB was not started. */
 uint8_t USBD_LL_UsbClockReady(void);
 
+/* 1 = the ES0596 erratum 2.21.3 zero-length-packet workaround is compiled
+   in and active for slave-mode IN transfers (see USBD_LL_Transmit in
+   usbd_conf.c).  Reported by the `info` command. */
+uint8_t USBD_LL_ZlpWaActive(void);
+
 /**
   * @}
   */

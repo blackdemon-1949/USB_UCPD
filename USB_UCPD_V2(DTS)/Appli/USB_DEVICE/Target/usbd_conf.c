@@ -792,11 +792,104 @@ USBD_StatusTypeDef USBD_LL_Transmit(USBD_HandleTypeDef *pdev, uint8_t ep_addr, u
   HAL_StatusTypeDef hal_status = HAL_OK;
   USBD_StatusTypeDef usb_status = USBD_OK;
 
+  /* USER CODE BEGIN USBD_LL_Transmit_ZlpErratum 0 */
+
+  /* ES0596 (STM32H7Rxx/7Sxx device errata) erratum 2.21.3: "Potential
+   * unexpected transfer on the USB bus instead of a zero-length packet".
+   *
+   * In BOTH buffer-DMA and slave mode, when a zero-length packet must be
+   * transmitted, the controller can instead put a *data* packet on the bus.
+   * Every control transfer whose status stage is an IN ZLP (SET_ADDRESS,
+   * SET_CONFIGURATION, SET_LINE_CODING, ...) is exposed, and a host that
+   * receives garbage where it expects a 0-length status packet fails the
+   * whole control transfer - which is precisely the "device descriptor
+   * request failed" / broken-COM-port failure Windows 11 reports
+   * intermittently on this board.  See USB_ENUMERATION.md.
+   *
+   * The ST-documented workaround applies to "all IN transfers that involve
+   * a zero-length packet transmission in device mode (DIEPTSIZx.XFRSIZ=0
+   * and DIEPTSIZx.PKTCNT=1)": start the endpoint NAK-ed, hold it for a
+   * fixed safe delay of 15 AHB clock cycles, then release the NAK.  The
+   * ST HAL (stm32h7rsxx_ll_usb.c USB_EPStartXfer) does not implement it:
+   * it writes DIEPCTL |= (CNAK | EPENA) directly.  This porting layer
+   * therefore takes over ONLY the zero-length IN case, keeping the PCD
+   * handle bookkeeping identical to HAL_PCD_EP_Transmit so the interrupt
+   * path is unchanged:
+   *   - xfer_buff/xfer_len/xfer_count/is_in/num are set exactly as the HAL
+   *     sets them (for a ZLP nothing is pushed to the FIFO, so no
+   *     DIEPEMPMSK is needed - matching the HAL).
+   *   - DIEPTSIZ is programmed exactly as the HAL's ZLP branch does
+   *     (XFRSIZ = 0, PKTCNT = 1), only the DIEPCTL release order differs.
+   * If the erratum analysis is wrong the sequence still degenerates to
+   * exactly what the HAL would have done, ~200 ns later - it cannot make
+   * the transfer path worse than stock.
+   *
+   * Compile gate: set USBD_H7RS_ZLP_ERRATUM_WA to 0 to get the stock HAL
+   * behaviour back for A/B testing on the bench. */
+#if !defined(USBD_H7RS_ZLP_ERRATUM_WA)
+#define USBD_H7RS_ZLP_ERRATUM_WA 1
+#endif
+#if USBD_H7RS_ZLP_ERRATUM_WA
+  if ((pdev->pData != NULL) &&
+      ((((PCD_HandleTypeDef *)pdev->pData)->Init.dma_enable == 0U)) && /* slave mode only */
+      ((ep_addr & 0x80U) != 0U) && (size == 0U))                        /* IN ZLP */
+  {
+    PCD_HandleTypeDef *hpcd = (PCD_HandleTypeDef *)pdev->pData;
+    uint32_t USBx_BASE = (uint32_t)hpcd->Instance;
+    USB_OTG_INEndpointTypeDef *inep = (USB_OTG_INEndpointTypeDef *)(
+        USBx_BASE + USB_OTG_IN_ENDPOINT_BASE +
+        (((uint32_t)(ep_addr & EP_ADDR_MSK)) * USB_OTG_EP_REG_SIZE));
+    PCD_EPTypeDef *ep = &hpcd->IN_ep[ep_addr & EP_ADDR_MSK];
+
+    /* Same handle bookkeeping HAL_PCD_EP_Transmit performs. */
+    ep->xfer_buff = pbuf;
+    ep->xfer_len = 0U;
+    ep->xfer_count = 0U;
+    ep->is_in = 1U;
+    ep->num = (uint8_t)(ep_addr & EP_ADDR_MSK);
+
+    /* Same DIEPTSIZ programming as USB_EPStartXfer()'s ZLP branch. */
+    inep->DIEPTSIZ &= ~(USB_OTG_DIEPTSIZ_XFRSIZ | USB_OTG_DIEPTSIZ_PKTCNT);
+    inep->DIEPTSIZ |= (USB_OTG_DIEPTSIZ_PKTCNT & (1UL << 19));
+
+    /* Erratum workaround ordering: enable the endpoint but hold it NAK-ed
+       (CNAK = 0), wait, then release. */
+    inep->DIEPCTL |= (USB_OTG_DIEPCTL_EPENA | USB_OTG_DIEPCTL_SNAK);
+    {
+      /* >= 15 AHB clock cycles.  The OTG AHB clock is HCLK (300 MHz here)
+         while the CPU runs at 600 MHz, so 15 AHB cycles = 30 CPU cycles;
+         this loop is deliberately far above that (each iteration is at
+         least one cycle plus loop overhead, and a volatile access). */
+      volatile uint32_t d;
+      for (d = 0U; d < 64U; d++) { __NOP(); }
+    }
+    inep->DIEPCTL |= USB_OTG_DIEPCTL_CNAK;   /* releases the NAK; ZLP goes out */
+    return USBD_OK;
+  }
+#endif /* USBD_H7RS_ZLP_ERRATUM_WA */
+
+  /* USER CODE END USBD_LL_Transmit_ZlpErratum 0 */
+
   hal_status = HAL_PCD_EP_Transmit(pdev->pData, ep_addr, pbuf, size);
 
   usb_status =  USBD_Get_USB_Status(hal_status);
 
   return usb_status;
+}
+
+/**
+  * @brief  Report whether the ES0596 2.21.3 ZLP erratum workaround is active.
+  * @param  None
+  * @retval 1 = workaround compiled in, 0 = stock HAL behaviour.
+  * @note   Read by the `info` command.
+  */
+uint8_t USBD_LL_ZlpWaActive(void)
+{
+#if USBD_H7RS_ZLP_ERRATUM_WA
+  return 1U;
+#else
+  return 0U;
+#endif
 }
 
 /**
