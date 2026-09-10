@@ -285,6 +285,36 @@ static void MPU_Config(void)
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
+  /** Region 5: Backup SRAM (4 KiB @ 0x38800000, non-cacheable) - APIE store
+   *
+   * WHY this region must exist even though nothing else maps 0x38800000:
+   * region 0 disables its no-access rule for subregions 0, 1, 2 and 7
+   * (SRD 0x87), and each subregion of the 4 GB background region is 512 MB,
+   * so 0x20000000-0x3FFFFFFF - which contains BKPSRAM at 0x38800000 - is
+   * deliberately left to fall through to the ARMv7-M default memory map.
+   * The default attributes for that range are Normal / Write-Back /
+   * Write-Allocate: with the D-cache enabled a CPU write to BKPSRAM can
+   * then sit in a dirty cache line that never reaches the VBAT-retained
+   * SRAM before power is lost, silently destroying the "persistent" store
+   * (the same class of bug as the USB DMA window, just with a battery
+   * instead of a DMA engine on the other side).
+   *
+   * Marking the window non-cacheable (mirroring region 4's attributes:
+   * shareable, not bufferable, TEX level 0, execute-never) makes every
+   * checkpoint store land in the real SRAM when the CPU issues it.
+   * apie_bkp.c additionally executes __DSB() after each image write.
+   */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER5;
+  MPU_InitStruct.BaseAddress = 0x38800000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_4KB;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 

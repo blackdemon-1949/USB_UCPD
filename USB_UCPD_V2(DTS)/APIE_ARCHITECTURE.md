@@ -71,6 +71,7 @@ interrupts. Heavy work is bounded by small fixed-size tables.
 | `apie_ml.c` | Naive Bayes + logistic head, model metadata/CRC |
 | `apie_plan.c` | query scheduler, information gain, experiment levels |
 | `apie_db.c` | RAM knowledge store, versioned + CRC, endurance counters |
+| `apie_bkp.c` | BKPSRAM persistence backend (VBAT-retained image: profiles + model, CRC-gated) |
 
 ## Data-flow separation
 

@@ -12,6 +12,7 @@
 #include "app_profile.h"
 #include "app_pd.h"
 #include "app_log.h"
+#include "apie_bkp.h"
 #include "usbpd_def.h"
 
 #include <stdio.h>
@@ -275,7 +276,8 @@ static void print_usage(void)
     "  profile apply <n>              apply step n now\r\n"
     "  profile next                   apply the next step (what PC13 does)\r\n"
     "  profile pos [n]                show or set the current position\r\n"
-    "  profile save|load              persist / restore (not available: XiP)\r\n");
+    "  profile save|load              persist to / restore from the BKPSRAM\r\n"
+    "                                 backup store (VBAT domain, if fitted)\r\n");
 }
 
 void APP_PROFILE_Cli(int argc, char *argv[])
@@ -412,11 +414,37 @@ void APP_PROFILE_Cli(int argc, char *argv[])
 
   if ((strcmp(argv[1], "save") == 0) || (strcmp(argv[1], "load") == 0))
   {
-    APP_LOG_Write("profile: no non-volatile storage is available for profiles.\r\n");
-    APP_LOG_Write("         The application runs in place from the external flash (XiP)\r\n");
-    APP_LOG_Write("         and there is no battery-backed RAM on this board, so the\r\n");
-    APP_LOG_Write("         list lives in RAM and is cleared on reset.  Say the word and\r\n");
-    APP_LOG_Write("         I will wire it to a spare flash sector.\r\n");
+    /* Persistence is the on-chip BKPSRAM backend (apie_bkp.c): the same
+       VBAT-domain store that holds the engine's learned data also carries
+       the owner profile list, so the list survives resets (and power loss
+       when VBAT + the backup regulator hold the domain up).  NOR is still
+       not written: XiP safety (FLASH_ENDURANCE.md). */
+    if (strcmp(argv[1], "save") == 0)
+    {
+      if (APIE_Bkp_Save("profile-cmd") != 0U)
+      {
+        APP_LOG_Printf("profile: saved (%u step(s)) to the BKPSRAM backup store.\r\n",
+                       (unsigned)s_count);
+      }
+      else
+      {
+        APP_LOG_Write("profile: save FAILED - BKPSRAM backend not available "
+                      "(run 'selftest flash' to see why).\r\n");
+      }
+    }
+    else
+    {
+      if (APIE_Bkp_LoadProfiles() != 0U)
+      {
+        APP_LOG_Printf("profile: restored %u step(s) from the BKPSRAM backup store.\r\n",
+                       (unsigned)s_count);
+      }
+      else
+      {
+        APP_LOG_Write("profile: load FAILED - no valid image in the BKPSRAM "
+                      "backup store.\r\n");
+      }
+    }
     return;
   }
 

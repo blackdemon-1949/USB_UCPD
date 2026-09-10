@@ -40,14 +40,15 @@ uint16_t APIE_Db_Export(uint8_t *out, uint16_t outsz);
 uint8_t APIE_Db_Import(const uint8_t *in, uint16_t len);
 
 /* ---------------------------------------------------------------------------
- * Flash-endurance / checkpoint counters.
+ *  Flash-endurance / checkpoint counters.
  *
- * The APIE knowledge store is RAM-resident (external NOR persistence is
- * DISABLED for XIP safety, see FLASH_ENDURANCE.md).  These counters therefore
- * report the *logical* checkpoint/persist accounting and the number of physical
- * flash program/erase operations actually performed (always 0 while NOR
- * persistence is disabled).  They are real counters with a defined meaning, so
- * `db wear/writes/erases/checkpoint` are honest rather than fabricated.
+ *  The APIE knowledge store is RAM-resident plus the on-chip BKPSRAM
+ *  persistence backend (apie_bkp.c): external NOR persistence stays DISABLED
+ *  for XIP safety (see FLASH_ENDURANCE.md).  These counters therefore report
+ *  the *logical* checkpoint/persist accounting and the number of physical
+ *  flash program/erase operations actually performed (always 0 while NOR
+ *  persistence is disabled).  They are real counters with a defined meaning,
+ *  so `db wear/writes/erases/checkpoint` are honest rather than fabricated.
  * ------------------------------------------------------------------------- */
 typedef struct
 {
@@ -62,7 +63,10 @@ typedef struct
 
 /* Bump the store counter (call on every StoreProfile). */
 void APIE_Db_CountStore(void);
-/* Record a logical checkpoint (no physical write while NOR persist is off). */
+/* Record a logical checkpoint.  Since the BKPSRAM backend landed, this is
+ * called by APIE_Bkp_Save() after a checkpoint image is written AND
+ * read-back CRC-verified - so the counter counts real persisted states,
+ * not attempts.  (See apie_bkp.c; apie_db.c itself still writes no memory.) */
 void APIE_Db_Checkpoint(void);
 /* Compact/re-index the store (dedupe by identity/signature). Returns new count. */
 uint16_t APIE_Db_Compact(void);

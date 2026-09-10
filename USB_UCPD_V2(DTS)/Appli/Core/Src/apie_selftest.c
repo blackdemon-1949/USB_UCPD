@@ -20,6 +20,7 @@
 #include "apie_unknown.h"
 #include "apie_plan.h"
 #include "apie_db.h"
+#include "apie_bkp.h"
 #include "app_log.h"
 #include "app_pd.h"
 #include "ina226.h"
@@ -203,15 +204,45 @@ static void selftest_pd(void)
 static void selftest_flash(void)
 {
   /* Non-destructive status only.  XIP execution is active; NOR program/erase
-     is DISABLED for XIP safety, so there is nothing destructive to test. */
+     is DISABLED for XIP safety, so there is nothing destructive to test.
+     The BKPSRAM backend is validated read-only: its gate state and the
+     whole-image CRC of what is currently in the backup SRAM.  A destructive
+     write/read-back test would clobber the real learned data, so it is
+     deliberately NOT performed here. */
   APIE_DbCounters_t c;
   APIE_Db_GetCounters(&c);
   APP_LOG_Write("  flash: XIP ACTIVE, NOR WRITE DISABLED (XIP safety) - no destructive op\r\n");
-  APP_LOG_Printf("  flash: erases=%lu wear=%lu checkpoints=%lu persist=%s\r\n",
+  APP_LOG_Printf("  flash: erases=%lu wear=%lu checkpoints=%lu nor_persist=%u\r\n",
                  (unsigned long)c.erases, (unsigned long)c.wear,
-                 (unsigned long)c.checkpoints, c.nor_persist ? "NOR" : "RAM");
+                 (unsigned long)c.checkpoints, (unsigned)c.nor_persist);
   chk(c.nor_persist == 0U, "flash: NOR write disabled (XIP safe)");
   chk(c.erases == 0U && c.wear == 0U, "flash: no endurance consumed by selftest");
+
+  /* BKPSRAM persistence backend (apie_bkp.c): gate + image state only. */
+  APP_LOG_Write("  bkpsram: read-only backend check (no image is written)\r\n");
+  chk(APIE_Bkp_HwOk() != 0U, "bkpsram: clock + backup-domain access up");
+  if (APIE_Bkp_HwOk() != 0U)
+  {
+    if (APIE_Bkp_RetentionOk() != 0U)
+    {
+      chk(1, "bkpsram: backup regulator ready (VBAT retention claimed)");
+    }
+    else
+    {
+      APP_LOG_Write("  [SKIP] bkpsram: backup regulator not ready - "
+                    "image survives resets only (this is reported, not hidden)\r\n");
+    }
+    if (APIE_Bkp_LastWriteOk() != 0U)
+    {
+      chk(1, "bkpsram: last checkpoint image CRC-verified");
+    }
+    else
+    {
+      APP_LOG_Write("  [SKIP] bkpsram: no verified checkpoint image yet "
+                    "(first boot or last write failed - store is RAM-only until "
+                    "the next checkpoint)\r\n");
+    }
+  }
 }
 
 /* ---------------------------------------------------------------------------

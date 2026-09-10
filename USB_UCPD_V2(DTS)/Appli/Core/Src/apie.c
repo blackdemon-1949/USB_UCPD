@@ -19,6 +19,7 @@
 #include "apie_plan.h"
 #include "apie_db.h"
 #include "apie_cable.h"
+#include "apie_bkp.h"
 #include "app_pd.h"
 #include "app_log.h"
 #include "ina226.h"
@@ -83,6 +84,11 @@ void APIE_Init(void)
   APIE_Plan_Init();
   APIE_Db_Init();
   APIE_Cable_Init();
+  /* Persistence backend: enable BKPSRAM (clock + DBP + backup regulator)
+     and restore the last image, if any, into the profile list, the database
+     and the ML model above.  Runs after their inits for exactly that
+     reason (APP_PROFILE_Init already ran in main.c). */
+  APIE_Bkp_Init();
   APIE_Db_StoreProfile(NULL); /* no-op guard */
 
   s_state = APIE_STATE_OBSERVING;
@@ -186,7 +192,14 @@ void APIE_OnCableDetach(uint8_t port)
   const APIE_Profile_t *p = APIE_Profile_Get();
   if (s_safe_mode == 0U && p->valid != 0U)
   {
-    (void)APIE_Db_StoreProfile(p);
+    if (APIE_Db_StoreProfile(p) >= 0)
+    {
+      /* The learned set changed - a "meaningful checkpoint" exactly as
+         FLASH_ENDURANCE.md defines it.  Persist everything (owner profiles
+         + learned profiles + model) to the BKPSRAM backend now; verified
+         write, no-ops safely if the backend gate failed. */
+      (void)APIE_Bkp_Save("detach");
+    }
   }
   s_pending_query = 0xFFU;
 }
@@ -587,6 +600,11 @@ void APIE_Task(void)
   uint8_t attached;
   uint8_t contract;
   int q;
+
+  /* Persistence maintenance: backup-regulator retry + slow aggregated model
+     checkpoint (see apie_bkp.c).  Runs before the safe-mode exit so learned
+     data keeps surviving resets even while the intelligence is muted. */
+  APIE_Bkp_Task();
 
   /* Main-loop budget instrumentation (bounded, no persistent writes). */
   if (s_task_period_last_ms != 0U)

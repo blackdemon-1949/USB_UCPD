@@ -18,12 +18,14 @@
   * cannot ask for anything the CLI could not already ask for, and the safety
   * limits in the PD stack still apply.
   *
-  * Storage note: the list lives in RAM.  The application runs in place from
-  * the external flash (XiP), so there is no spare sector to write to and no
-  * battery-backed RAM wired on this board - `profile save` says so plainly
-  * instead of pretending.  Add persistence only once a real non-volatile
-  * region is confirmed.
-  ******************************************************************************
+ * Storage note: the list is persisted by the on-chip BKPSRAM backend
+ * (apie_bkp.c) - the VBAT-domain backup SRAM at 0x38800000, enabled with
+ * DBP + BKPRAMEN + the backup regulator.  `profile save` writes it (and it
+ * rides along with every engine checkpoint), `profile load` re-reads it,
+ * and a valid image is restored automatically at boot.  The external NOR is
+ * still never written: the application executes from it (XiP), see
+ * FLASH_ENDURANCE.md.
+ ******************************************************************************
   */
 
 #ifndef APP_PROFILE_H
