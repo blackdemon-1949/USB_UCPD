@@ -507,6 +507,17 @@ static int build_rdo(uint8_t port, uint8_t index, uint16_t mv, uint16_t ma,
       uint32_t max_ma = (uint32_t)pdo.SRCSNKAPDO.MaxCurrentIn50mAunits * 50U;
       uint32_t req_mv = (mv != 0U) ? (uint32_t)mv : min_mv;
       uint32_t req_ma = (ma != 0U) ? (uint32_t)ma : max_ma;
+      /* PPS granularity: the RDO fields are OutputVoltageIn20mV and
+         OperatingCurrentIn50mAunits, so the wire can only carry 20 mV
+         voltage steps and 50 mA current steps.  Snap the request DOWN to
+         that grid here (never ask for more than the caller said), before
+         the PDO range clamp - the PPS bounds are on coarser grids, so the
+         clamped result stays on the 20 mV / 50 mA grid.  This also keeps
+         every stored/displayed copy (RequestedVoltage/Current, the
+         synthetic VBUS, 'remember') exactly what the source will deliver,
+         instead of a number that silently truncated inside the RDO. */
+      req_mv -= req_mv % 20U;
+      req_ma -= req_ma % 50U;
       if (req_mv < min_mv) { req_mv = min_mv; }
       if (req_mv > max_mv) { req_mv = max_mv; }
       if (req_ma > max_ma) { req_ma = max_ma; }

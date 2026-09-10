@@ -82,7 +82,10 @@ extern "C" {
 /* Safety thresholds (guard rails, never advisory-only). */
 #define APIE_MAX_VOLTAGE_MV       21000U /* hard ceiling across all policies    */
 #define APIE_MAX_CURRENT_MA       5000U
-#define APIE_PPS_STEP_MV          100U   /* fine PPS step for safe ramp         */
+/* PPS granularity: the Request Data Object fields are OutputVoltageIn20mV
+ * and OperatingCurrentIn50mAunits, so 20 mV / 50 mA are the finest steps
+ * the wire can carry (build_rdo() snaps every PPS request to this grid). */
+#define APIE_PPS_STEP_MV          20U    /* PPS voltage step (RDO 20 mV units) */
 #define APIE_QUERY_COOLDOWN_MS    500U
 #define APIE_QUERY_TIMEOUT_MS     1200U
 #define APIE_QUERY_MAX_PENDING    2U
