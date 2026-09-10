@@ -11,9 +11,11 @@ validation procedure for the user.
 
 | Item | Status |
 | --- | --- |
-| Host compiler (syntax) | `tools/check_syntax.sh` 54/54 |
-| ARM cross-build + link | `tools/check_arm_build.py` PASS (Boot + Appli, 0 Appli warnings) |
+| Host compiler (syntax) | `tools/check_syntax.sh` 60/60 |
+| ARM cross-build + link (real GCC) | `tools/build_gcc.py` PASS, Arm GNU 13.2.Rel1, flags per `.cproject` |
+| ARM cross-build + link (zig/clang) | `tools/check_arm_build.py` PASS (Boot + Appli, 0 Appli warnings) |
 | Decoder host self-test | `tools/apie_selftest.sh` 67/67 (incl. PB722 vectors) |
+| BKPSRAM persistence host self-test | `tools/apie_bkp_selftest.sh` 64/64 (round-trip, CRC gate, clean under ASan/UBSan) |
 | Python decoder cross-check | `tools/apie_decode.py selftest` |
 | Knowledge package | `tools/build_knowledge.py` + `--verify` |
 | CLI routing coverage | `tools/cli_coverage.py` |
@@ -69,3 +71,35 @@ Adding APIE must **not** break the original working firmware. On hardware verify
 
 Until this is done, APIE is **HOST/BUILD VERIFIED only**, not **HARDWARE
 VERIFIED**.
+
+## New bench items (this revision)
+
+**BKPSRAM persistence (apie_bkp.c).**
+
+1. `profile add ...` a couple of steps, `profile save`, then press NRST:
+   the boot log must say `bkp: BKPSRAM ready..., N owner profile(s) ...
+   restored` and `profile` must list the same steps.
+2. Let the engine learn (attach a source, detach), reset, and confirm the
+   learned profiles and model counts are restored.
+3. Power cycle with VBAT supplied: the image must survive (log says
+   `VBAT-retained`).  Without VBAT the honest expectation is loss of the
+   image on full power removal - the log then says `reset-only (breg not
+   ready)` only when the regulator failed, otherwise `no valid image`.
+4. `selftest flash` prints the backend gate/retention/image state
+   read-only.
+
+**CDC (ES0596 2.21.3 ZLP workaround, `USBD_H7RS_ZLP_ERRATUM_WA`).**
+
+1. Reproduce the Windows bad-enumeration case (replug loop ~20 times),
+   noting the failure rate.
+2. Rebuild with the workaround disabled
+   (`-DUSBD_H7RS_ZLP_ERRATUM_WA=0`) and repeat - compare rates.
+3. The workaround is only *BUILD VERIFIED* until this A/B is done on the
+   bench; it is not claimed to fix the Windows issue by itself.
+
+**PPS grid (20 mV / 50 mA).**
+
+1. `pps 11007 1007` - the request must report/apply 11000 mV / 1000 mA
+   (snapped down to the 20 mV / 50 mA grid) and the INA226 reading must
+   match the reported values.
+

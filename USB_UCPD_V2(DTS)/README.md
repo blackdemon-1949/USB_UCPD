@@ -346,9 +346,52 @@ Boot blinks N times, pauses, repeats:
 * **Silent `while(1)` hangs removed** from the USBPD bring-up
   (`MX_USBPD_Init`, `USBPD_DPM_ErrorHandler`); they now blink LED code 8.
 
+### New this revision
+
+* **CDC hardening: ES0596 erratum 2.21.3 ZLP workaround** (BUILD VERIFIED,
+  not hardware-verified) — on STM32H7R a zero-length IN packet can be
+  replaced by an incorrect data packet on the bus. Every control transfer
+  whose status stage is an IN ZLP (SET_ADDRESS, SET_CONFIGURATION, ...) is
+  exposed at every enumeration, which is a plausible firmware-side source
+  of the intermittent Windows "device descriptor request failed" /
+  climbing-COM symptoms. The ST HAL does not implement the documented
+  workaround, so `USBD_LL_Transmit()` in `usbd_conf.c` now takes over only
+  the slave-mode IN zero-length case (EPENA|SNAK, hold >= 15 AHB cycles,
+  CNAK; HAL-identical bookkeeping, degenerates to stock behaviour if the
+  analysis is wrong). Compile gate `USBD_H7RS_ZLP_ERRATUM_WA` (default 1)
+  for bench A/B testing.
+* **PPS request grid: 20 mV / 50 mA** — the RDO fields are
+  `OutputVoltageIn20mV` / `OperatingCurrentIn50mAunits`, so those are the
+  finest steps the wire can carry. `build_rdo()` now snaps every PPS
+  request DOWN to that grid (never more than asked) and every stored /
+  displayed copy (requested values, synthetic VBUS, `remember`) matches
+  what the source actually delivers. `APIE_PPS_STEP_MV` is 20 mV to match.
+* **Battery-backed persistence (BKPSRAM)** — see the next section.
+
 
 Healthy Appli: slow heartbeat (USB up, no PD), fast blink while negotiating,
 solid on explicit contract.
+
+## Battery-backed persistence (BKPSRAM, `apie_bkp.c`)
+
+The STM32H7R3's on-chip **backup SRAM** (4 KB, VBAT domain, `0x38800000`) is
+the persistence backend — CMOS-like, kept alive by the backup regulator from
+VBAT when the main supply is off. It stores, in one CRC-32-gated image:
+
+- the **owner's PC13 profile list** — `profile save` persists it, it is
+  restored automatically at boot, `profile load` re-reads it on demand;
+- the **learned source profiles** (APIE database);
+- the **online ML model**.
+
+Worst case 2 287 B of the 4 096 B window. NOR is still never written (XIP
+safety, FLASH_ENDURANCE.md). Every write is read back and CRC-verified; a
+blank/corrupt/tamper-erased image is discarded for a clean empty store.
+Checkpoints only on meaningful changes (detach commit, `db compact`,
+`profile save`, aggregated model move at most 1/min). `main.c` maps a
+non-cacheable MPU region over the window so a checkpoint cannot die in a
+dirty D-cache line. Honest status: VBAT-retained vs reset-only is reported
+(`selftest flash`), and retention through a real power cycle is a bench
+item (HARDWARE_VALIDATION.md).
 
 ## CubeMX notes (already patched — do not regenerate blindly)
 
@@ -454,13 +497,19 @@ linker script and the prebuilt USBPD core library, then prints the memory
 usage. It is clang rather than GCC 14.3, so treat it as a link/geometry check,
 not a byte-for-byte reproduction of the CubeIDE output.
 
-**Last verified:** `check_syntax.sh` 44/44 and `check_arm_build.py` PASS —
-`Boot` FLASH 24 584 B / 64 KB, RAM 312 B; `Appli` FLASH 148 240 B / 8 MB,
-RAM 23 360 B / 440 KB, `RAM_NONCACHEABLEBUFFER` 5 408 B / 8 KB, DTCM 4 KB /
-64 KB. One warning, benign and pre-existing: `w25qxx_xspi.c:224 unused function
-'W25QXX_Wait_Busy'` in Boot — a static helper in the vendor flash driver that
-nothing calls. Left alone deliberately; removing it would touch the Boot flash
-driver for zero functional gain.
+**Last verified (this revision):** `check_syntax.sh` **60/60**;
+`build_gcc.py` (real arm-none-eabi-gcc, Arm GNU 13.2.Rel1, CubeIDE flags)
+**PASS** — `Boot` FLASH 12 544 B / 64 KB, RAM 124 B; `Appli` FLASH 158 864 B /
+8 MB, RAM 49 264 B / 440 KB (includes the 4 KiB full-window staging buffer),
+`RAM_NONCACHEABLEBUFFER` 5 408 B / 8 KB, DTCM 4 KB / 64 KB, **0 Appli
+warnings**; `check_arm_build.py` (zig/clang) **PASS**. Host tests:
+`apie_selftest.sh` 67/67, `apie_unknown_selftest.sh` 36/36,
+`apie_bkp_selftest.sh` **64/64** (persistence round-trip + CRC gate, clean
+under ASan/UBSan). One warning, benign and pre-existing:
+`w25qxx_xspi.c:224 unused function 'W25QXX_Wait_Busy'` in Boot — a static
+helper in the vendor flash driver that nothing calls. Left alone
+deliberately; removing it would touch the Boot flash driver for zero
+functional gain.
 
 Note for anyone running the harness: `zig` reuses its compilation cache and does
 not replay compiler diagnostics on a cache hit, so an older version of this tool
@@ -505,6 +554,7 @@ stack); APIE never re-enters it.  This is the feature set:
 | Knowledge package | `research/` — schema-versioned CRC blob with message tables, PDO/APDO metadata, safety gates, **charging-transport table**, **packet schemas** | HOST VERIFIED |
 | Safe experimentation | R0/R1/R2 ON within limits, R3/R4 OFF (compile-gated); never auto-transmits unknown packets | IMPLEMENTED (R3/R4 DISABLED) |
 | Knowledge database | `apie_db.c` — versioned, CRC-32, deduped RAM store (NOR persist DISABLED for XIP safety) | BUILD VERIFIED |
+| Persistence backend | `apie_bkp.c` — BKPSRAM (VBAT domain) image: owner profiles + learned profiles + ML model, CRC-gated, verified writes | HOST VERIFIED (64/64) + BUILD VERIFIED |
 | Cable intelligence | `apie_cable.c` — SOP'/SOP'' identity → cable VID/PID/current/active/vconn, separate from source | BUILD VERIFIED |
 | EPR/AVS awareness | `apie_cable.c` — AVS/EPR decoded + tracked; **never energised** (`APIE_HW_EPR_POWER_ENABLED=0`) | HARDWARE-LIMITED / FUTURE |
 | VDM/SVDM/UVDM observation | via the VDM user callbacks + decoder | BUILD VERIFIED |
@@ -515,7 +565,8 @@ stack); APIE never re-enters it.  This is the feature set:
 | Packet regression vectors | PB722 flows (caps/req/accept/ps_rdy, Not_Supported, PPS_Status, identity) in `apie_decode_selftest.c` + `apie_decode.py` | HOST VERIFIED |
 
 **Safety / fault containment.**  Max voltage 21 V, max current 5 A, PPS step
-100 mV; EPR/AVS power is gated OFF on this board.  All heavy analysis runs in
+20 mV (voltage) / 50 mA (current — the RDO grid); EPR/AVS power is gated OFF
+on this board.  All heavy analysis runs in
 the super loop (`APIE_Task()`), never in the UCPD/DMA/USB ISRs.  The only thing
 done in interrupt context is a bounded copy + enqueue + return from the
 RXMSGGEND bridge in `usbpd_hw_if_it.c`, which does **not** change the ST PRL RX
