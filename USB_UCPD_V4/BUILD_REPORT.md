@@ -7,10 +7,22 @@ Base: the original `USB_UCPD_V4.zip` upload, re-extracted; `Boot/` untouched,
 
 ---
 
-## 1. Why the previous drop was "broken even more"
+## 1. Root causes
 
 Three independent defects, all of them *invisible in a compile* — each one
-produces a board that looks dead with no console:
+produces a board that looks dead with no console.
+
+Where they come from:
+
+* defect 2 below is in the **original upload**: `main.c` defines
+  `Appli_Fail()` as `__disable_irq(); while(1) { blink }` and `Error_Handler()`
+  calls it, so any bring-up error is a permanently dead board. The virtual
+  board reproduces it: the uploaded tree stops (interrupts off) at ~86 k
+  instructions in `MX_DTS_Init → Error_Handler → Appli_Fail`.
+* defect 1 came in with the **previous (rejected) drop**, which is where the
+  external-NOR driver, the NOR store, the backup-SRAM CMOS and the watchdog
+  were first added. This restart keeps those modules but fixes the defect.
+* defect 3 is in the **original upload** as well (one CDC attempt).
 
 | # | Defect | Consequence |
 |---|--------|-------------|
@@ -24,6 +36,13 @@ reproduced end-to-end in the virtual board (`Appli_Fail` lockup on the original
 tree, full boot with the fixes).
 
 ## 2. What was changed
+
+### 2.0 New files relative to `USB_UCPD_V4.zip`
+
+`ext_nor.c/h`, `app_store.c/h`, `app_cmos.c/h`, `app_wdt.c/h`, `app_cmd.c/h`,
+`app_fault.c/h`, `app_config.h` (feature switches), plus the console commands
+in `app_cli.c` and the boot-order/failsafe changes in `main.c`. Everything in
+the upload is still in place and still built; `Boot/` is byte-identical.
 
 ### 2.1 External NOR driver can no longer strand the CPU
 * `.ramfunc` is now a real output section `>ITCM AT>FLASH` in `ROMxspi1.ld`.
