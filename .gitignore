@@ -1,0 +1,14 @@
+# Build outputs produced by USB_UCPD_V4/Makefile (GNU Arm + picolibc)
+USB_UCPD_V4/build/
+*.o
+*.d
+*.su
+*.elf
+*.bin
+*.hex
+*.map
+
+# Editor / tooling noise
+__pycache__/
+*.pyc
+.DS_Store

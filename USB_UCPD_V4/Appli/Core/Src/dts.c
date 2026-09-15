@@ -1,0 +1,100 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file    dts.c
+  * @brief   This file provides code for the configuration
+  *          of the DTS instances.
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "dts.h"
+#include "app_fault.h"
+
+/* USER CODE BEGIN 0 */
+
+/* USER CODE END 0 */
+
+DTS_HandleTypeDef hdts;
+
+/* DTS init function */
+void MX_DTS_Init(void)
+{
+
+  /* USER CODE BEGIN DTS_Init 0 */
+
+  /* USER CODE END DTS_Init 0 */
+
+  /* USER CODE BEGIN DTS_Init 1 */
+
+  /* USER CODE END DTS_Init 1 */
+  hdts.Instance = DTS;
+  hdts.Init.QuickMeasure = DTS_QUICKMEAS_DISABLE;
+  hdts.Init.RefClock = DTS_REFCLKSEL_LSE;
+  hdts.Init.TriggerInput = DTS_TRIGGER_HW_NONE;
+  hdts.Init.SamplingTime = DTS_SMP_TIME_15_CYCLE;
+  hdts.Init.Divider = 0;
+  hdts.Init.HighThreshold = 0x0;
+  hdts.Init.LowThreshold = 0x0;
+  if (HAL_DTS_Init(&hdts) != HAL_OK)
+  {
+    /* NOT fatal.  The DTS is clocked from the LSE, and the bootloader only
+       starts the HSE, so on a board whose 32.768 kHz crystal is missing or
+       slow to start this call legitimately fails.  Error_Handler() used to
+       end in __disable_irq() + while(1) *before* USB and USB-PD were
+       initialised, i.e. no console and no PD in any condition.  Record it,
+       let ext_dts.c start/retry the LSE, and keep booting. */
+    APP_INIT_Fail("DTS", (int)HAL_DTS_GetState(&hdts));
+  }
+  /* USER CODE BEGIN DTS_Init 2 */
+
+  /* USER CODE END DTS_Init 2 */
+
+}
+
+void HAL_DTS_MspInit(DTS_HandleTypeDef* dtsHandle)
+{
+
+  if(dtsHandle->Instance==DTS)
+  {
+  /* USER CODE BEGIN DTS_MspInit 0 */
+
+  /* USER CODE END DTS_MspInit 0 */
+    /* DTS clock enable */
+    __HAL_RCC_DTS_CLK_ENABLE();
+  /* USER CODE BEGIN DTS_MspInit 1 */
+
+  /* USER CODE END DTS_MspInit 1 */
+  }
+}
+
+void HAL_DTS_MspDeInit(DTS_HandleTypeDef* dtsHandle)
+{
+
+  if(dtsHandle->Instance==DTS)
+  {
+  /* USER CODE BEGIN DTS_MspDeInit 0 */
+
+  /* USER CODE END DTS_MspDeInit 0 */
+    /* Peripheral clock disable */
+    __HAL_RCC_DTS_CLK_DISABLE();
+  /* USER CODE BEGIN DTS_MspDeInit 1 */
+
+  /* USER CODE END DTS_MspDeInit 1 */
+  }
+}
+
+/* USER CODE BEGIN 1 */
+
+/* USER CODE END 1 */
+
