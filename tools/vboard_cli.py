@@ -125,10 +125,30 @@ def main():
                     help="instructions to run between commands (queue drain)")
     ap.add_argument("--boot-budget", type=int, default=3_000_000)
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--nor-load", metavar="IMG",
+                    help="pre-load the external-NOR store window from IMG")
+    ap.add_argument("--nor-save", metavar="IMG",
+                    help="write the store window to IMG at the end of the run")
+    ap.add_argument("--nor-trace", action="store_true",
+                    help="print the modelled XSPI command sequence")
     args = ap.parse_args()
 
     vb = load_vboard()
+    nor_mod = None
+    if args.nor_load or args.nor_save or args.nor_trace:
+        import importlib.util as _ilu
+        spec = _ilu.spec_from_file_location(
+            "vboard_nor", __import__("os").path.join(HERE, "vboard_nor.py"))
+        nor_mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(nor_mod)
+        nor_mod.prepare(vb.Board)      # before the board installs its hooks
     board = Board(vb, args.elf, verbose=args.verbose)
+    nor = None
+    if nor_mod is not None:
+        nor = nor_mod.install(board, load=args.nor_load, verbose=args.nor_trace)
+        print("external NOR modelled on XSPI1 (8 MB, store window 0x700000..0x800000)"
+              + (f", image loaded from {args.nor_load}" if args.nor_load else ""))
+        print(f"  jedec id 0x{nor_mod.JEDEC:06X}")
     print(f"booting {args.elf} ...")
     board.run(args.boot_budget, stop_when=lambda: "[boot] ready" in board.console())
     text = board.console()
@@ -184,6 +204,15 @@ def main():
             failures.append((cmd, "no output"))
         if "unknown:" in out:
             failures.append((cmd, "rejected by the parser"))
+
+    if nor is not None and args.nor_save:
+        nor.save(args.nor_save)
+        print(f"\nstore window saved to {args.nor_save}")
+    if nor is not None:
+        print(nor.summary())
+        if args.nor_trace:
+            for line in nor.log[:40]:
+                print("   ", line)
 
     print("\n=====================================")
     if board.fatal:

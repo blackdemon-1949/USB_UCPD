@@ -475,9 +475,14 @@ static int nor_run(uint32_t op, uint32_t off, uint32_t len, uint32_t tmo)
   {
     return EXT_NOR_ERR_PARAM;
   }
-  /* Only the reserved window may be written. */
-  if ((op != 0U) && ((off < EXT_NOR_STORE_OFF) ||
-                     ((off + len) > (EXT_NOR_STORE_OFF + EXT_NOR_STORE_SIZE))))
+  /* Only the reserved window may be written.  Check the WRITE operations
+     (1 = program, 2 = erase) - op 3/4 are the JEDEC and status reads, which
+     legitimately address offset 0, so a blanket "op != 0" test would refuse
+     the very probe that makes the device known (the store then never came
+     up).  Reads of the window are checked again in EXT_NOR_Read(). */
+  if (((op == 1U) || (op == 2U)) &&
+      ((off < EXT_NOR_STORE_OFF) ||
+       ((off + len) > (EXT_NOR_STORE_OFF + EXT_NOR_STORE_SIZE))))
   {
     s_errors++;
     return EXT_NOR_ERR_OFF;
