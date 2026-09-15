@@ -52,6 +52,7 @@ class Board:
         self.sym = self.b.symbols
         self.uw = self.sym["uwTick"]
         self.count = 0
+        self.precise = False
         self.fatal = []
         self.mark = 0
         self.uc.hook_add(unicorn.UC_HOOK_MEM_READ, self._hook_read)
@@ -86,12 +87,22 @@ class Board:
         the CPU in Error_Handler/Appli_Fail forever, so checking after a block
         is just as good, and the tick only needs to be roughly right for the
         HAL's millisecond timeouts.
+
+        Block execution is a speed shortcut, not a faithful one: Unicorn's
+        cached translation of a few Thumb-2 sequences in this image is wrong
+        and the CPU then skips instructions.  One visible consequence is that
+        picolibc's ``%lu`` of zero prints as an empty string instead of "0"
+        (the conversion sits behind a ``bpl`` that never gets taken); a
+        single-stepped run of the same ELF prints "0" correctly, so this is
+        the emulator, not the firmware - see BUILD_REPORT.md 3.3.  Set
+        ``precise`` when the *text* of an answer has to be trusted, and leave
+        it off (the default) when only the state machine matters.
         """
         uc = self.uc
         stop_pc = (self.sym[stop_on] & ~1) if stop_on else None
         remaining = instructions
         while remaining > 0:
-            chunk = min(self.CHUNK, remaining)
+            chunk = 1 if self.precise else min(self.CHUNK, remaining)
             try:
                 uc.emu_start(uc.reg_read(self.vb.UC_ARM_REG_PC) | 1, 0, count=chunk)
             except unicorn.UcError as exc:
@@ -138,6 +149,9 @@ def main():
     ap.add_argument("--commands", default="cmos;cmos faults;store;wdt;usb;help;info")
     ap.add_argument("--settle", type=int, default=400_000,
                     help="instructions to run between commands (queue drain)")
+    ap.add_argument("--precise", action="store_true",
+                    help="single-step the command phase so printed digits are "
+                         "exact (Unicorn mis-executes some cached blocks)")
     ap.add_argument("--boot-budget", type=int, default=3_000_000)
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--nor-load", metavar="IMG",
@@ -172,6 +186,10 @@ def main():
         print(text[-800:])
         return 2
     print(text[text.index("[USART2"):] if "[USART2" in text else text)
+    if args.precise:
+        # From here on every instruction runs on its own: see Board.run().
+        board.precise = True
+        print("(precise stepping ON for the command phase - answers are exact)")
 
     def drain(chunk, quiet_target, max_rounds, quiet_is_prompt=False):
         """Run until the console output stops growing (or the prompt shows)."""

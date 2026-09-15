@@ -271,6 +271,52 @@ through its CMOS head hint it skips the scan, so `records=` was printed as 0
 even with records present. It now prints `records=(not scanned)` (or the count
 after a real scan) instead of a misleading zero.
 
+### 3.3 What the emulator gets wrong (so its numbers are not taken as gospel)
+
+Every console line in 3.1 was produced by block execution of the virtual board
+(20 000 instructions per `emu_start`), and that shortcut is not faithful. The
+harness was chasing missing digits in `cmos` output - `seq=,` instead of
+`seq=0,`, `ovp=mV` instead of `ovp=0mV` - and the answer turned out to be the
+emulator, not the firmware:
+
+* a hook on the firmware's own `APP_LOG_WriteRaw` shows the string handed over
+  *already* missing the zero, and a hook on `vsnprintf` shows the format string
+  is the expected `"... seq=%lu, ..."`;
+* a stub injected into the loaded image that calls the firmware's own
+  `APP_LOG_Printf` prints `[A=][B=7][C=0][D=0]` for `"[A=%lu][B=%lu][C=%u][D=%ld]"`
+  with arguments 0/7/0/0 - only the `%lu`-of-zero cases lose their digit;
+* the *same* stub, run with one instruction per `emu_start` instead of blocks,
+  prints `[A=0][B=7][C=0][D=0]`.
+
+So Unicorn's cached translation of that conversion path skips the branch that
+gives a lone `0` its digit: block mode steps straight over `lsls`/`uxth.w`/`bpl`
+at `0x900344bc..0x900344c3` in `vfprintf`. The firmware is correct - on silicon
+`seq=0` and `ovp=0mV` are printed - but any emulator transcript can drop a
+zero-valued `%lu`/`%x` field, so 3.1's transcripts are quoted as they came out.
+
+`tools/vboard_cli.py --precise` therefore single-steps the command phase: the
+boot stays fast (block mode), the answers become exact. The same command that
+loses its zeros in block mode
+
+```
+$ store
+  store: unavailable, head=0x000000 sector= records=? writes=
+```
+
+comes out complete when the answer is formed one instruction at a time:
+
+```
+$ store
+  store
+  store: ready, head=0x701000 sector=0 records=0 writes=0
+         window 0x700000..0x800000 (1024 KB), nor: ext-nor: ready, id=0x856017 errors=0
+  > [ina226] no ina226 connected
+```
+
+Everything the report claims about *stored data* does not depend on the
+transcript either - it is read back out of the modelled flash image and checked
+byte by byte.
+
 ## 4. Build result (`make clean && make -j2 all`, exit 0)
 
 Only warning: `Boot/Core/Src/w25qxx_xspi.c:224: 'W25QXX_Wait_Busy' defined but
