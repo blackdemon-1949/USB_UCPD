@@ -62,6 +62,7 @@ class Nor:
     def __init__(self, verbose=False):
         self.verbose = verbose
         self.cycles = 0
+        self.published = {}
         self.mem = bytearray(b"\xff" * NOR_SIZE)
         self.reg = {name: 0 for name in OFF}
         # Boot left the controller in memory-mapped mode with the read command
@@ -94,8 +95,10 @@ class Nor:
     def on_write(self, uc, address, size, value):
         """Called for every store; runs the modelled XSPI command state machine."""
         if XSPI1_REG_BASE <= address < XSPI1_REG_BASE + XSPI1_REG_SIZE:
+            # Returning True skips the guest store, so the model owns the
+            # register file and publishes values on reads instead.
             self.reg_write(uc, address, value)
-            uc.mem_write(address, struct.pack("<I", value & 0xFFFFFFFF))
+            self.published[address] = value & 0xFFFFFFFF
             return True
         if NOR_BASE + STORE_OFF <= address < NOR_BASE + STORE_OFF + STORE_SIZE:
             off = address - (NOR_BASE + STORE_OFF)
@@ -122,6 +125,19 @@ class Nor:
             sr |= SR_BUSY
         return sr
 
+    def _publish(self, uc, addr, val):
+        """Mirror a value into guest memory, but only when it changed.
+
+        Every uc.mem_write from a hook invalidates Unicorn's translation
+        cache, and the driver polls these registers in tight loops, so writing
+        the same value back would dominate the run time.
+        """
+        val &= 0xFFFFFFFF
+        if self.published.get(addr) == val:
+            return
+        self.published[addr] = val
+        uc.mem_write(addr, struct.pack("<I", val))
+
     def reg_read(self, uc, addr):
         name = REG_BY_OFF.get(addr - XSPI1_REG_BASE)
         if name:
@@ -136,7 +152,7 @@ class Nor:
             val = self._read_dr()
         else:
             val = self.reg[name]
-        uc.mem_write(addr, struct.pack("<I", val & 0xFFFFFFFF))
+        self._publish(uc, addr, val)
 
     def reg_write(self, uc, addr, value):
         name = REG_BY_OFF.get(addr - XSPI1_REG_BASE)

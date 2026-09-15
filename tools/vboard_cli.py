@@ -63,9 +63,9 @@ class Board:
     # -- hooks -------------------------------------------------------------
     def _hook_read(self, uc, access, address, size, value, user):
         if address == RCC_CR:
-            uc.mem_write(address, (0x00020000).to_bytes(4, "little"))   # HSERDY
+            self.b._patch(uc, address, 0x00020000)          # HSERDY
         elif address == PWR_CSR2:
-            uc.mem_write(address, (USB33RDY | USBHSREGEN).to_bytes(4, "little"))
+            self.b._patch(uc, address, USB33RDY | USBHSREGEN)
         return False
 
     def _hook_intr(self, uc, intno, user):

@@ -14,15 +14,21 @@ produces a board that looks dead with no console.
 
 Where they come from:
 
-* defect 2 below is in the **original upload**: `main.c` defines
-  `Appli_Fail()` as `__disable_irq(); while(1) { blink }` and `Error_Handler()`
-  calls it, so any bring-up error is a permanently dead board. The virtual
-  board reproduces it: the uploaded tree stops (interrupts off) at ~86 k
-  instructions in `MX_DTS_Init → Error_Handler → Appli_Fail`.
-* defect 1 came in with the **previous (rejected) drop**, which is where the
-  external-NOR driver, the NOR store, the backup-SRAM CMOS and the watchdog
-  were first added. This restart keeps those modules but fixes the defect.
-* defect 3 is in the **original upload** as well (one CDC attempt).
+Provenance, checked against the committed upload (`USB_UCPD_V4.zip`):
+
+* defects 2 and 3 are in the **upload itself**. `main.c` defines `Appli_Fail()`
+  as `__disable_irq(); while(1) { blink }`, `Error_Handler()` calls it, so any
+  bring-up error is a permanently dead board - the virtual board reproduces it:
+  the uploaded tree stops (interrupts off) at ~86 k instructions in
+  `MX_DTS_Init → Error_Handler → Appli_Fail`. `usbd_conf.c` already gated
+  `USBD_LL_Init()` on `PWR_CSR2.USB33RDY` (`s_usb_clock_ok`) and
+  `usb_device.c` brought the device up exactly once: if that one attempt lands
+  while the rail is still rising, the console is gone for the whole power
+  cycle.
+* defects 1 and 1.1 come with the **external-NOR driver added in this work**
+  (the same two mistakes were in the rejected v1). The upload has no
+  `ext_nor.c`/`app_store.c`/`app_cmos.c`/`app_cmd.c`/`app_wdt.c`/`app_fault.c`
+  at all - those modules are what replaces the SD card.
 
 | # | Defect | Consequence |
 |---|--------|-------------|
@@ -36,6 +42,30 @@ reproduced end-to-end in the virtual board (`Appli_Fail` lockup on the original
 tree, full boot with the fixes).
 
 ## 2. What was changed
+
+### 1.1 A second real defect, found by modelling the flash
+
+Modelling the XSPI controller (`tools/vboard_nor.py`) turned the store from
+"answers *no device*" into a working device, and immediately exposed this:
+
+```c
+/* ext_nor.c, nor_run() - before */
+if ((op != 0U) && ((off < EXT_NOR_STORE_OFF) || ...))   /* any non-read op */
+{
+  s_errors++;
+  return EXT_NOR_ERR_OFF;
+}
+```
+
+The reserved-window guard was meant for **writes**, but `op != 0` also covered
+the JEDEC-id (op 3) and status (op 4) reads, which legitimately address offset
+0. So the one call that makes the device known - the id probe in
+`EXT_NOR_Init()` - was refused with `EXT_NOR_ERR_OFF`, `s_ready` stayed 0 and
+`EXT_NOR_Init()` always returned 0: **the persistent store could never come up
+on any board, with or without the chip fitted**. Every `store`, `cmd`, `learn`
+and settings path answered "unavailable". Fixed: the guard now applies to the
+write operations (program/erase) only, and `EXT_NOR_Read()` keeps re-checking
+its own window.
 
 ### 2.0 New files relative to `USB_UCPD_V4.zip`
 
@@ -125,6 +155,58 @@ Reproduce:
 python3 tools/vboard_cli.py USB_UCPD_V4/Appli/USB_UCPD_Appli.elf \
         --commands "cmos;cmos faults;store;store selftest;wdt;usb;cmd list"
 ```
+
+### 3.1 The external flash, exercised instead of assumed
+
+`tools/vboard_nor.py` adds a model of the XSPI1 controller and one NOR device
+to the virtual board: CR/SR/DLR/AR/DR/CCR/TCR/IR/ABR/LPTR, CR.ABORT
+self-clearing, FMODE (indirect vs memory-mapped - which is also what arms a
+transaction, so the register restore at the end of a job cannot be mistaken for
+a command), SR.TCF/FLEVEL/BUSY, the commands the driver uses (0x9F, 0x05, 0x06,
+0x04, 0x03/0x0B, 0x02, 0x20, 0xD8, 0xC7) and an 8 MB array with
+program-only-clears-bits semantics. `DWT->CYCCNT` advances on every read, so
+the driver's cycle-based timeouts can expire instead of hanging the emulator.
+
+What the model shows on this build (command trace as printed by `--nor-trace`):
+
+```
+IR=0x9F AR=0x000000 DLR=3      JEDEC id read      -> 0x856017, device found
+IR=0x06 AR=0x000000 DLR=0      WREN
+IR=0x05 AR=0x000000 DLR=0      RDSR               -> WEL set
+IR=0x20 AR=0x7FF000 DLR=0      4 KB erase, self test sector
+IR=0x02 AR=0x7FF000 DLR=31     page program, 32 B
+IR=0x0B AR=0x7FF000 DLR=31     read back          -> pattern matches
+IR=0x20 AR=0x700000 DLR=0      store superblock: erase first data sector
+IR=0x02 AR=0x700000 DLR=31     write the 'EXST' header
+IR=0x0B AR=0x701000..0x7FF000  scan the 256 sector headers
+```
+
+The saved store window contains exactly what the driver meant to write:
+
+```
+@0x700000  "EXST" 01 00 00 00 | 00 01 00 00 | 00 10 70 00 | f0 66 1e 65 ...
+           magic   version      record count  free sector  CRC-32
+@0x7FF000  a5 a4 a7 a6 a1 a0 a3 a2 ...      (the self-test pattern 0xA5^i,
+                                              read back and verified)
+```
+
+so the probe, the erase/program/read-back self test and the superblock write
+all work end to end.
+
+Two caveats, stated plainly:
+
+* the model was written from the driver's own register sequence, so it
+  validates the **software** (no dead loop, window arithmetic, sector
+  boundaries, record persistence, the latched-off-on-error policy) - not the
+  chip's real timing, status semantics or electrical behaviour. Those still
+  need the board (`store selftest` first).
+* Unicorn in M-profile mode cannot fetch instructions from address
+  `0x00000000`, which is where `.ramfunc` lives (`ITCM`). For these runs the
+  image was relinked with the ITCM region based at `0x00001000` (identical
+  code, same offsets - the startup copy uses `_siramfunc/_sramfunc/_eramfunc`,
+  so it is base-independent). The **shipped** `ROMxspi1.ld` and its ELF are
+  unchanged: ITCM at `0x00000000` is the region's real address and what the
+  original script specified.
 
 ## 4. Build result (`make clean && make -j2 all`, exit 0)
 

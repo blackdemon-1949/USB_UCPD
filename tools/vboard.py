@@ -66,6 +66,7 @@ class Board:
         self.seen = set()
         self.reg_reads = {}
         self.isr_samples = []
+        self.patched = {}
         self.reg_writes = {}
         import collections
         self.history = collections.deque(maxlen=24)
@@ -125,6 +126,24 @@ class Board:
         self.uc.hook_add(unicorn.UC_HOOK_INTR, self._hook_intr)
 
     # ------------------------------------------------------------- hooks
+    def _patch(self, uc, address, value):
+        """Write a faked register value, but only when it changed.
+
+        Every uc.mem_write from inside a hook drops Unicorn's translation
+        cache, and the HAL polls these registers constantly (USART status,
+        OTG handshakes), so re-writing the same value would be the single
+        biggest cost of a run.
+        """
+        # NOTE: always write.  Caching "already patched" here looked like an
+        # easy saving, but the OTG handshake polls GRSTCTL.AHBIDLE right after
+        # writing it, and with the guest's own stores skipped by this hook the
+        # guest would read back a value that no longer matches the model: the
+        # CPU then never leaves USB_CoreReset.  Skipping a redundant write is
+        # only safe for a register file that the model fully owns (see
+        # tools/vboard_nor.py), which is not the case for the OTG registers.
+        self.patched[address] = value
+        uc.mem_write(address, value.to_bytes(4, "little"))
+
     def _hook_read(self, uc, access, address, size, value, user):
         # USB OTG global registers: report "AHB master idle", otherwise the HAL
         # reset handshake (USB_CoreReset) polls a bit that a flat memory model
@@ -133,14 +152,14 @@ class Board:
         for otg in (0x40040000, 0x40080000):
             if otg <= address < otg + 0x1000:
                 if (address - otg) == 0x10:                       # GRSTCTL
-                    uc.mem_write(address, (0x80000000).to_bytes(4, "little"))
+                    self._patch(uc, address, 0x80000000)
                 elif (address - otg) == 0x14:                     # GINTSTS
                     # Read-mostly: CMOD (bit 0) mirrors the current mode.  The
                     # HAL's USB_SetCurrentMode() polls it for up to a second and
                     # gives up with HAL_ERROR if it cannot see device mode, and
                     # USB_StopDevice() leaves stale flag bits behind in a flat
                     # memory model.  Report "device mode, no flags pending".
-                    uc.mem_write(address, (0x00000000).to_bytes(4, "little"))
+                    self._patch(uc, address, 0x00000000)
         if 0x40000000 <= address < 0x40040000:
             self.reg_reads[address] = self.reg_reads.get(address, 0) + 1
         for base in USART_BASES:
@@ -148,7 +167,7 @@ class Board:
                 off = address - base
                 if off == USART_ISR_OFF:
                     # report the transmit/receive ready bits the HAL polls for
-                    uc.mem_write(address, (USART_ISR_TXE | USART_ISR_TC | USART_ISR_TEACK | USART_ISR_REACK).to_bytes(4, "little"))
+                    self._patch(uc, address, USART_ISR_TXE | USART_ISR_TC | USART_ISR_TEACK | USART_ISR_REACK)
                     if len(self.isr_samples) < 6:
                         self.isr_samples.append((uc.reg_read(UC_ARM_REG_PC),
                                                  uc.reg_read(UC_ARM_REG_LR)))
