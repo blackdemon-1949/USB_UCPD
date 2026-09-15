@@ -63,7 +63,11 @@ class Nor:
         self.verbose = verbose
         self.cycles = 0
         self.published = {}
-        self.mem = bytearray(b"\xff" * NOR_SIZE)
+        # Only the reserved store window is emulated: the code area above it is
+        # never touched by the driver (it is guarded), and 1 MB instead of 8 MB
+        # keeps the harness light.  Offsets in this class are absolute NOR
+        # offsets, so the two accessors below translate.
+        self.mem = bytearray(b"\xff" * STORE_SIZE)
         self.reg = {name: 0 for name in OFF}
         # Boot left the controller in memory-mapped mode with the read command
         # programmed; EXT_NOR_Init() refuses to touch the device otherwise.
@@ -80,6 +84,23 @@ class Nor:
         self.stats = dict(cmd=0, read=0, program=0, erase=0, ids=0, unknown=0)
         self.reg_access = {}
         self.log = []
+
+    # ------------------------------------------------------- window access
+    def _peek(self, p):
+        i = p - STORE_OFF
+        return self.mem[i] if 0 <= i < STORE_SIZE else 0xFF
+
+    def _erase_range(self, addr, size):
+        lo = max(0, addr - STORE_OFF)
+        hi = min(STORE_SIZE, addr + size - STORE_OFF)
+        if hi > lo:
+            self.mem[lo:hi] = b"\xff" * (hi - lo)
+
+    def _program_at(self, addr, data):
+        for i, b in enumerate(data):
+            p = addr - STORE_OFF + i
+            if 0 <= p < STORE_SIZE:
+                self.mem[p] &= b          # NOR programming can only clear bits
 
     # ---------------------------------------------------------------- hooks
     def on_read(self, uc, address):
@@ -103,7 +124,7 @@ class Nor:
         if NOR_BASE + STORE_OFF <= address < NOR_BASE + STORE_OFF + STORE_SIZE:
             off = address - (NOR_BASE + STORE_OFF)
             data = value.to_bytes(size, "little") if size else b""
-            self.mem[STORE_OFF + off:STORE_OFF + off + len(data)] = data
+            self.mem[off:off + len(data)] = data
         return False
 
     # ---------------------------------------------------------------- window
@@ -111,7 +132,7 @@ class Nor:
         """Serve a memory-mapped load inside the store window from the array."""
         off = addr - (NOR_BASE + STORE_OFF)
         if 0 <= off <= STORE_SIZE - 4:
-            uc.mem_write(addr, bytes(self.mem[STORE_OFF + off:STORE_OFF + off + 4]))
+            uc.mem_write(addr, bytes(self.mem[off:off + 4]))
 
     # ------------------------------------------------------------ registers
     def _sr_value(self):
@@ -238,14 +259,12 @@ class Nor:
 
     def _erase(self, addr, size):
         self.stats["erase"] += 1
-        lo = max(0, min(addr, NOR_SIZE))
-        hi = max(0, min(addr + size, NOR_SIZE))
-        self.mem[lo:hi] = b"\xff" * (hi - lo)
+        self._erase_range(addr, size)
         self.tcf = True
 
     def _read_dr(self):
         if self.remaining:
-            v = self.mem[self.cursor % NOR_SIZE] if self.cursor < NOR_SIZE else 0xFF
+            v = self._peek(self.cursor)
             self.cursor += 1
             self.remaining -= 1
             if self.remaining == 0:
@@ -268,20 +287,17 @@ class Nor:
 
     def _program(self, addr, data):
         self.stats["program"] += 1
-        for i, b in enumerate(data):
-            p = addr + i
-            if p < NOR_SIZE:
-                self.mem[p] &= b          # NOR programming can only clear bits
+        self._program_at(addr, data)
 
     # ------------------------------------------------------------ image I/O
     def save(self, path):
         with open(path, "wb") as fh:
-            fh.write(bytes(self.mem[STORE_OFF:STORE_OFF + STORE_SIZE]))
+            fh.write(bytes(self.mem))
 
     def load(self, path):
         with open(path, "rb") as fh:
             data = fh.read(STORE_SIZE)
-        self.mem[STORE_OFF:STORE_OFF + len(data)] = data
+        self.mem[:len(data)] = data
 
     def summary(self):
         s = self.stats

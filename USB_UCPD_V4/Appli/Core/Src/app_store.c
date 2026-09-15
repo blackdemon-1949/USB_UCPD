@@ -52,6 +52,7 @@ static uint8_t  s_formatted;
 static uint32_t s_head;          /* absolute NOR offset of the next free byte */
 static uint32_t s_seq;           /* sequence of the last written record       */
 static uint32_t s_records;       /* records seen during the last scan         */
+static uint8_t  s_records_known; /* 0 = mounted from the CMOS hint, not counted */
 static uint32_t s_writes;        /* records written this session              */
 static uint32_t s_sector;        /* sector currently being filled (index)     */
 static uint32_t s_last_event_ms;
@@ -175,6 +176,7 @@ static void store_scan(void)
   uint32_t sector;
 
   s_records = 0U;
+  s_records_known = 1U;          /* the loop below really counts them */
 
   for (sector = 0U; sector < (STORE_DATA_LEN / EXT_NOR_SECTOR_SIZE); sector++)
   {
@@ -341,10 +343,21 @@ uint8_t APP_STORE_Init(void)
   }
 
   s_ready = 1U;
-  APP_LOG_Printf("[store] ready: %s, head=0x%06lX, records=%lu, writes=%lu\r\n",
-                 s_formatted ? "formatted" : "mounted",
-                 (unsigned long)s_head, (unsigned long)s_records,
-                 (unsigned long)s_writes);
+  /* "mounted" through the CMOS hint skips the scan, so the record count is
+     simply not known yet - say so instead of printing a misleading 0. */
+  if (s_records_known)
+  {
+    APP_LOG_Printf("[store] ready: %s, head=0x%06lX, records=%lu, writes=%lu\r\n",
+                   s_formatted ? "formatted" : "mounted",
+                   (unsigned long)s_head, (unsigned long)s_records,
+                   (unsigned long)s_writes);
+  }
+  else
+  {
+    APP_LOG_Printf("[store] ready: %s, head=0x%06lX, records=(not scanned), writes=%lu\r\n",
+                   s_formatted ? "formatted" : "mounted",
+                   (unsigned long)s_head, (unsigned long)s_writes);
+  }
   return 1U;
 }
 
@@ -460,6 +473,7 @@ int APP_STORE_Format(void)
   s_sector = 0U;
   s_seq = 0U;
   s_records = 0U;
+  s_records_known = 1U;
   s_writes = 0U;
   s_formatted = 1U;
   store_hint_save();
@@ -559,11 +573,23 @@ void APP_STORE_LogShow(uint32_t count)
 
 void APP_STORE_PrintStatus(void)
 {
-  APP_LOG_Printf("store: %s%s, head=0x%06lX sector=%lu records=%lu writes=%lu\r\n",
-                 s_ready ? "ready" : "unavailable",
-                 s_formatted ? " (formatted now)" : "",
-                 (unsigned long)s_head, (unsigned long)s_sector,
-                 (unsigned long)s_records, (unsigned long)s_writes);
+  if (s_records_known)
+  {
+    APP_LOG_Printf("store: %s%s, head=0x%06lX sector=%lu records=%lu writes=%lu\r\n",
+                   s_ready ? "ready" : "unavailable",
+                   s_formatted ? " (formatted now)" : "",
+                   (unsigned long)s_head, (unsigned long)s_sector,
+                   (unsigned long)s_records, (unsigned long)s_writes);
+  }
+  else
+  {
+    APP_LOG_Printf("store: %s%s, head=0x%06lX sector=%lu records=? writes=%lu"
+                   "   (? = mounted from the CMOS hint, no scan this boot)\r\n",
+                   s_ready ? "ready" : "unavailable",
+                   s_formatted ? " (formatted now)" : "",
+                   (unsigned long)s_head, (unsigned long)s_sector,
+                   (unsigned long)s_writes);
+  }
   APP_LOG_Printf("       window 0x%06lX..0x%06lX (%lu KB), nor: %s, id=0x%06lX errors=%lu\r\n",
                  (unsigned long)EXT_NOR_STORE_OFF,
                  (unsigned long)(EXT_NOR_STORE_OFF + EXT_NOR_STORE_SIZE),

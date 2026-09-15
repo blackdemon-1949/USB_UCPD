@@ -122,7 +122,30 @@ the upload is still in place and still built; `Boot/` is byte-identical.
   settings, so a fresh board shows `(fault ring empty ...)`, never 16 rows of
   `0xFFFFFFFF` noise.
 
-### 2.5 Console / CLI
+### 2.5 The flash allocation that replaces the SD card
+
+`EXT_NOR_STORE_OFF = 0x700000`, `EXT_NOR_STORE_SIZE = 1 MB` (256 x 4 KB
+sectors) inside the 8 MB PY25Q64HA, everything below it is application code
+(the driver refuses to run if `_etext` reaches into the window):
+
+| record type | id | use |
+|---|---|---|
+| settings mirror | 1 | backup copy of the CMOS settings |
+| learned signatures | 2 | the ML/learn database |
+| decision-model state | 3 | model parameters |
+| owner profiles | 4 | profile list |
+| event log / packet log | 5 / 6 | text and binary logs |
+| signature CSV export | 7 | what `learn export` prints |
+| user command macros | 0x40..0x7F | 64 slots (`cmd add/run/del`) |
+| learned-signature chunks | 0x80..0x8F | 16 x 1 KB chunks |
+
+Each record carries its type, length and CRC-32; 1 MB is ~4000 x 256-byte
+records, far more than the learned data and the 64 command slots need. The
+window is one contiguous block so `store format` can rebuild it in place, and
+a record that fails to write latches writes off instead of corrupting the
+superblock.
+
+### 2.6 Console / CLI
 Added on top of the existing CLI: `cmos [save|reset|faults|clear]`,
 `store [status|events|selftest|format|on|off|save|load]`, `cmd [list|add|show|del|run]`,
 `wdt [kick]`, `safe [on|off]`, `usb [status|retry]`. The ready banner reports
@@ -190,8 +213,20 @@ The saved store window contains exactly what the driver meant to write:
                                               read back and verified)
 ```
 
-so the probe, the erase/program/read-back self test and the superblock write
-all work end to end.
+and the console confirms it from the running firmware:
+
+```
+$ store
+  store: ready (formatted now), head=0x701000 sector=0 records=0 writes=0
+         window 0x700000..0x800000 (1024 KB), nor: ext-nor: ready, id=0x856017 errors=0
+$ store selftest
+  store: NOR self test PASS
+```
+
+so the probe, the erase/program/read-back self test, the superblock write and
+the header scan all work end to end - before the fix the same command answered
+`unavailable ... nor: ext-nor: no device on XSPI1` on a board that has the
+chip fitted.
 
 Two caveats, stated plainly:
 
@@ -208,6 +243,34 @@ Two caveats, stated plainly:
   unchanged: ITCM at `0x00000000` is the region's real address and what the
   original script specified.
 
+### 3.2 The record layer, tested on the host (fast, and it covers the reboot)
+
+`tools/store_host_test.c` compiles `Appli/Core/Src/app_store.c` natively against
+an in-RAM NOR with the chip's semantics (4 KB sector erase, programming only
+clears bits, an error path that can be armed), so the parts that are pure
+software can be checked in milliseconds instead of minutes of emulator time:
+
+```
+gcc -std=c11 -Wall -I tools/host_shim -I USB_UCPD_V4/Appli/Core/Inc \
+    -o /tmp/store_host_test tools/store_host_test.c \
+       USB_UCPD_V4/Appli/Core/Src/app_store.c && /tmp/store_host_test
+```
+
+30 checks, all passing: mounting a blank chip formats it (one erase + the
+superblock); every record type is written and read back with the payload
+intact; 400 event records and a full 1 KB record are accepted; **re-initialising
+the store - the reboot path - finds all the records again and writes nothing**
+(that is the persistence guaranteed by the external flash instead of the SD
+card); writing past the end of a sector rolls over into a fresh one (48 sector
+erases) and records from the first sector stay readable; an armed flash error
+makes the write *refuse* instead of leaving a half-written record behind, and
+the store still mounts afterwards; `format` clears the window.
+
+The same run exposed a small reporting bug, now fixed: when the store mounts
+through its CMOS head hint it skips the scan, so `records=` was printed as 0
+even with records present. It now prints `records=(not scanned)` (or the count
+after a real scan) instead of a misleading zero.
+
 ## 4. Build result (`make clean && make -j2 all`, exit 0)
 
 Only warning: `Boot/Core/Src/w25qxx_xspi.c:224: 'W25QXX_Wait_Busy' defined but
@@ -217,7 +280,7 @@ not used` — pre-existing, bootloader left alone on purpose.
 
 | Region | Used | Size | % |
 |---|---|---|---|
-| FLASH (XiP) | 273 428 B | 8 MB | 3.26 % |
+| FLASH (XiP) | 270 440 B | 8 MB | 3.22 % |
 | RAM (AXI SRAM, cacheable) | 78 096 B | 440 KB | 17.33 % |
 | RAM_NONCACHEABLEBUFFER | 7 712 B | 8 KB | 94.14 % |
 | ITCM (NOR RAM-mode driver) | 1 904 B | 64 KB | 2.91 % |
@@ -225,13 +288,13 @@ not used` — pre-existing, bootloader left alone on purpose.
 | SRAMAHB | 0 | 32 KB | 0 % |
 | BKPSRAM (CMOS + store) | 4 KB @ `0x38800000` | 4 KB | addressed by pointer |
 
-`text 272 812 / data 616 / bss 89 288`.
+`text 269 824 / data 616 / bss 89 288`.
 
 ### Bootloader (`Boot/USB_UCPD_Boot.elf`, unmodified)
 
 | Region | Used | Size | % |
 |---|---|---|---|
-| FLASH | 20 152 B | 64 KB | 30.75 % |
+| FLASH | 20 148 B | 64 KB | 30.74 % |
 | RAM | 300 B | 455 KB | 0.06 % |
 | DTCM | 2 KB | 64 KB | 3.12 % |
 
@@ -265,8 +328,14 @@ Note: the non-cacheable window is 94 % full because it now also carries the
   qualified here; the decode/display path is complete and the flag is one line.
 * **NOR writes on real silicon**: the RAM-mode path is now correct by
   construction (ITCM, self-contained, interrupts masked) and guarded by
-  assertions, but external-flash programming timings/status polling can only be
-  confirmed with the PY25Q64HA fitted. First check: `store selftest`, then
-  `store format`, then `learn save` / `learn load`.
+  assertions; the indirect-mode sequences, the erase/program/read-back self
+  test and the superblock write are verified against a modelled device, and the
+  record layer is unit-tested on the host. What a model cannot cover is the
+  chip's real timing, status semantics and electrical behaviour, plus one
+  performance number worth measuring: a boot-time scan of the 1 MB window costs
+  ~5000 indirect reads (roughly 0.1-0.2 s at typical NOR timings) - if that
+  matters, the CMOS hint already lets a normal boot skip the scan entirely.
+  First check on the bench: `store selftest`, then `store format`, then
+  `cmd add` / `cmd list` and `learn save` / `learn load`.
 * **DTS (LSE)**: `ext_dts.c` retries every second; if the LSE is not started by
   the bootloader the readout stays unavailable (non-fatal by design).

@@ -73,27 +73,42 @@ class Board:
         return False
 
     # -- stepping ----------------------------------------------------------
+    CHUNK = 20000        # instructions per emu_start: see the note below
+
     def run(self, instructions, stop_on=None, stop_when=None):
-        """Run; stop early on a symbol name, a predicate, or instruction count."""
+        """Run; stop early on a symbol name, a predicate, or instruction count.
+
+        Emulating one instruction per emu_start() call costs several
+        microseconds of host time each, which is the difference between a boot
+        taking two minutes and twenty.  Instructions are therefore executed in
+        blocks and the bookkeeping that used to happen per instruction (the
+        HAL tick, the fatal-path check) happens per block: a fault path parks
+        the CPU in Error_Handler/Appli_Fail forever, so checking after a block
+        is just as good, and the tick only needs to be roughly right for the
+        HAL's millisecond timeouts.
+        """
         uc = self.uc
         stop_pc = (self.sym[stop_on] & ~1) if stop_on else None
-        for _ in range(instructions):
-            if stop_pc is not None and (uc.reg_read(self.vb.UC_ARM_REG_PC) & ~1) == stop_pc:
-                return True
+        remaining = instructions
+        while remaining > 0:
+            chunk = min(self.CHUNK, remaining)
             try:
-                uc.emu_start(uc.reg_read(self.vb.UC_ARM_REG_PC) | 1, 0, count=1)
+                uc.emu_start(uc.reg_read(self.vb.UC_ARM_REG_PC) | 1, 0, count=chunk)
             except unicorn.UcError as exc:
                 self.fatal.append(("stop", str(exc)))
                 return False
-            self.count += 1
-            if self.count % 30 == 0:
-                v = int.from_bytes(uc.mem_read(self.uw, 4), "little")
-                uc.mem_write(self.uw, ((v + 1) & 0xFFFFFFFF).to_bytes(4, "little"))
+            self.count += chunk
+            remaining -= chunk
+            v = int.from_bytes(uc.mem_read(self.uw, 4), "little")
+            uc.mem_write(self.uw, ((v + max(1, chunk // 30)) & 0xFFFFFFFF).to_bytes(4, "little"))
             cur = uc.reg_read(self.vb.UC_ARM_REG_PC) & ~1
+            if stop_pc is not None and cur == stop_pc:
+                return True
             for name in ("Appli_Fail", "Error_Handler", "Appli_Fatal", "HardFault_Handler"):
                 a = self.sym.get(name)
                 if a is not None and cur == (a & ~1):
                     self.fatal.append((name, self.b.resolve((uc.reg_read(self.vb.UC_ARM_REG_LR) & ~1) - 1)))
+                    return False
             if stop_when is not None and stop_when():
                 return True
         return False
