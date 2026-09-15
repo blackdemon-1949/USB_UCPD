@@ -290,27 +290,21 @@ emulator, not the firmware:
 
 So Unicorn's cached translation of that conversion path skips the branch that
 gives a lone `0` its digit: block mode steps straight over `lsls`/`uxth.w`/`bpl`
-at `0x900344bc..0x900344c3` in `vfprintf`. The firmware is correct - on silicon
-`seq=0` and `ovp=0mV` are printed - but any emulator transcript can drop a
-zero-valued `%lu`/`%x` field, so 3.1's transcripts are quoted as they came out.
+at `0x900344bc..0x900344c3` in `vfprintf`. It is intermittent - an earlier
+block-mode transcript of the same `store` answer (3.1) came out complete, a
+later one lost the digits - which is what a translation-block artefact looks
+like, and why it took a stub and a single-stepped run to pin down. The firmware
+is correct: on silicon `seq=0` and `ovp=0mV` are printed.
 
 `tools/vboard_cli.py --precise` therefore single-steps the command phase: the
-boot stays fast (block mode), the answers become exact. The same command that
-loses its zeros in block mode
+boot stays fast (block mode), the answers become exact. Same firmware, same
+flash image, same command, only the stepping changed:
 
 ```
-$ store
-  store: unavailable, head=0x000000 sector= records=? writes=
-```
+block mode   (boot banner)   [store] ready: mounted, head=0x701000, records=, writes=
 
-comes out complete when the answer is formed one instruction at a time:
-
-```
-$ store
-  store
-  store: ready, head=0x701000 sector=0 records=0 writes=0
-         window 0x700000..0x800000 (1024 KB), nor: ext-nor: ready, id=0x856017 errors=0
-  > [ina226] no ina226 connected
+precise      ($ store)       store: ready, head=0x701000 sector=0 records=0 writes=0
+                             window 0x700000..0x800000 (1024 KB), nor: ext-nor: ready, id=0x856017 errors=0
 ```
 
 Everything the report claims about *stored data* does not depend on the
