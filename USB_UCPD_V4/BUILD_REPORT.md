@@ -256,7 +256,7 @@ gcc -std=c11 -Wall -I tools/host_shim -I USB_UCPD_V4/Appli/Core/Inc \
        USB_UCPD_V4/Appli/Core/Src/app_store.c && /tmp/store_host_test
 ```
 
-30 checks, all passing: mounting a blank chip formats it (one erase + the
+35 checks, all passing: mounting a blank chip formats it (one erase + the
 superblock); every record type is written and read back with the payload
 intact; 400 event records and a full 1 KB record are accepted; **re-initialising
 the store - the reboot path - finds all the records again and writes nothing**
