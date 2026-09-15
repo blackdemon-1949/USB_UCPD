@@ -317,10 +317,26 @@ Everything the report claims about *stored data* does not depend on the
 transcript either - it is read back out of the modelled flash image and checked
 byte by byte.
 
-## 4. Build result (`make clean && make -j2 all`, exit 0)
+## 4. Build result (from scratch: `rm -rf build && make -j4 all`, exit 0)
 
-Only warning: `Boot/Core/Src/w25qxx_xspi.c:224: 'W25QXX_Wait_Busy' defined but
-not used` — pre-existing, bootloader left alone on purpose.
+0 compilation errors, 0 linker errors. Only warning:
+`Boot/Core/Src/w25qxx_xspi.c:224: 'W25QXX_Wait_Busy' defined but not used` —
+pre-existing, bootloader left alone on purpose. The two assembler notices
+("end of file not at end of a line, newline inserted") come with the vendor
+startup files and are not ours to fix.
+
+The same build was repeated on a **fresh export of the pushed commit**
+(`git archive HEAD | tar -x`, 385 files, empty build directory) and produced
+byte-identical numbers, so nothing needed to build is missing from the branch:
+
+```
+             RAM:       78096 B       440 KB     17.33%     (Appli)
+           FLASH:      270440 B         8 MB      3.22%
+             RAM:         300 B       455 KB      0.06%     (Boot)
+           FLASH:       20148 B        64 KB     30.74%
+```
+
+The host test of 3.2 also passes from that export (35/35).
 
 ### Application (`Appli/USB_UCPD_Appli.elf`)
 
